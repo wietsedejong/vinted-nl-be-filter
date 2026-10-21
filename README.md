@@ -1,76 +1,103 @@
 # Vinted NL/BE-filter
 
-Browserextensie (Firefox en Chrome) die op **vinted.nl** alleen artikelen laat zien van verkopers uit **Nederland en België**. Welke landen meetellen stel je zelf in.
+> Vinted heeft een filter voor 47 tinten beige, maar niet voor "die trui ligt gewoon in Zwolle".
+> Je zoekt een spijkerbroek en krijgt half Europa: een jeans uit Lyon, een jas uit Bari, en een vest waarvan de verzendkosten hoger zijn dan het vest zelf.
+> Deze extensie doet wat Vinted zelf blijkbaar te ingewikkeld vindt: alleen laten zien wat dichtbij is.
 
-Sinds Vinted één Europese marktplaats is, staan er in je zoekresultaten veel artikelen uit Frankrijk, Spanje, Italië enz., met hogere verzendkosten en langere levertijden. Vinted heeft zelf geen filter op het land van de verkoper. Deze extensie voegt dat toe.
+Browserextensie voor Firefox en Chrome die op **vinted.nl** alleen artikelen toont van verkopers uit **Nederland en België**. Andere landen zijn instelbaar.
 
-## Wat je krijgt
+---
 
-- **Filter op land van de verkoper.** Standaard NL en BE. Andere landen vink je aan in het pop-upmenu.
-- **Verbergen of dimmen.** Artikelen van buiten de gekozen landen verdwijnen, of blijven grijs zichtbaar.
-- **Landlabel op elke foto**, bijvoorbeeld `NL · Utrecht` of `BE · Gent`. Zo zie je ook of ophalen een optie is.
-- **Statuslabel linksonder.** Toont hoeveel artikelen getoond, verborgen en nog aan het laden zijn. Met één klik zet je het filter uit, met **toon** zie je tijdelijk wat er verborgen is.
+## ⚠️ Lees dit eerst
+
+**Deze extensie is voor mensen die weten wat ze doen.**
+
+- Er is **geen ondersteuning**. Geen helpdesk, geen mail, geen "kun je even kijken?". Werkt het niet, dan zoek je het zelf uit.
+- Je moet zelf een extensie handmatig kunnen laden, een foutmelding in de browserconsole kunnen lezen en zo nodig een stukje JavaScript kunnen aanpassen.
+- Vinted verandert regelmatig iets aan de site. Dan gaat dit stuk. De vraag is niet óf, maar wannéér.
+- Issues en pull requests mag je openen, maar reken nergens op. Een werkende fix in een pull request maakt de meeste kans.
+- Gebruik is op eigen risico. Zie [Gebruiksvoorwaarden](#gebruiksvoorwaarden).
+
+Herken je jezelf niet in het lijstje hierboven? Dan is dit waarschijnlijk niets voor jou.
+
+---
+
+## Wat het doet
+
+- **Filtert op land van de verkoper.** Standaard NL en BE. Andere landen vink je aan in het menu.
+- **Verbergt of dimt** artikelen van buiten die landen.
+- **Vult de pagina aan.** Blijven er na het filteren te weinig artikelen over, dan haalt de extensie de volgende pagina('s) van dezelfde zoekopdracht op, met dezelfde filters. Die artikelen verschijnen onder de bestaande resultaten. Met **Meer laden** haal je er handmatig nog meer bij.
+- **Landlabel op elke foto**, bijvoorbeeld `NL · Utrecht`. Zo zie je ook meteen of ophalen kan.
+- **Statuslabel linksonder.** Toont hoeveel artikelen getoond, verborgen en nog aan het laden zijn. Je zet het filter er aan en uit, en met **toon** zie je even wat er verborgen is.
 - **Cache.** Een verkoper die al eens is opgezocht, is de volgende keer direct bekend.
 
 ## Installeren
 
-### Firefox
+### Firefox (versie 128 of nieuwer)
 
-**Tijdelijk (om te testen)**
+**Tijdelijk**
 
-1. Download of clone deze repo.
-2. Ga naar `about:debugging#/runtime/this-firefox`.
-3. Klik op **Tijdelijke add-on laden…** en kies `manifest.json`.
-
-Een tijdelijke add-on verdwijnt als Firefox herstart.
+Ga naar `about:debugging#/runtime/this-firefox`, klik op **Tijdelijke add-on laden…** en kies `manifest.json`. De add-on verdwijnt als Firefox herstart.
 
 **Permanent**
 
-Firefox installeert alleen ondertekende extensies. Ondertekenen is gratis en kan als 'unlisted': de extensie verschijnt dan niet publiek in de winkel.
+Firefox installeert alleen ondertekende extensies. Ondertekenen kan gratis, als 'unlisted' (niet zichtbaar in de winkel):
 
-1. Maak API-sleutels aan op <https://addons.mozilla.org/developers/addon/api/key/>.
-2. Onderteken de extensie:
+```bash
+# API-sleutels: https://addons.mozilla.org/developers/addon/api/key/
+npx web-ext sign --channel=unlisted --api-key=JOUW_KEY --api-secret=JOUW_SECRET
+```
 
-   ```bash
-   npx web-ext sign --channel=unlisted --api-key=... --api-secret=...
-   ```
-
-3. Open het `.xpi`-bestand uit `web-ext-artifacts/` in Firefox.
+Open daarna het `.xpi`-bestand uit `web-ext-artifacts/` in Firefox.
 
 ### Chrome / Chromium / Edge / Brave
 
-1. Download of clone deze repo.
-2. Ga naar `chrome://extensions` en zet **Ontwikkelaarsmodus** aan.
-3. Klik op **Uitgepakte extensie laden** en kies de map van deze repo.
+Ga naar `chrome://extensions`, zet **Ontwikkelaarsmodus** aan, klik op **Uitgepakte extensie laden** en kies deze map.
 
 ## Hoe het werkt
 
-Bij zoekresultaten van Vinted zit wel het ID van de verkoper, maar niet zijn land. De extensie zoekt dat in drie stappen op:
+Bij zoekresultaten van Vinted zit wel het ID van de verkoper, maar niet zijn land. De extensie zoekt dat zo op:
 
-1. **Verkoper per artikel.** De extensie leest de zoekresultaten die Vinted al in de pagina meestuurt. Bij doorbladeren leest `page-hook.js` mee met de API-antwoorden die Vinted zelf ophaalt. Dit kost geen extra verzoeken.
-2. **Land per verkoper.** Via `/api/v2/users/<id>`, het profiel dat Vinted ook toont als je op een verkoper klikt. Het antwoord wordt 60 dagen bewaard.
-3. **Uitwijk.** Vindt de extensie bij een artikel geen verkoper, dan haalt ze na 2,5 seconden de artikelpagina op en zoekt het ID daar.
+1. **Verkoper per artikel.** Uit de zoekresultaten die al in de pagina zitten (Next.js-serverrender). Bij doorbladeren leest `page-hook.js` mee met de API-antwoorden die Vinted zelf ophaalt. Dit kost geen extra verzoeken.
+2. **Land per verkoper.** Via `GET /api/v2/users/<id>`, hetzelfde profiel dat je ziet als je op een verkoper klikt. Het antwoord gaat 60 dagen de cache in.
+3. **Uitwijk.** Vindt de extensie bij een artikel geen verkoper, dan haalt ze de artikelpagina op en zoekt het ID daar.
+4. **Aanvullen.** De extensie haalt de HTML op van `?page=N+1`, Vinted's eigen pagina-URL, zodat alle filters meegaan. Daaruit leest ze de artikelen en toont ze die als eigen kaarten.
 
-Alle verzoeken lopen via je eigen browsersessie op vinted.nl. Er gaan geen gegevens naar andere servers.
+Alles loopt via je eigen browsersessie op vinted.nl. Er gaan geen gegevens naar andere servers.
 
 ## Beperkingen
 
-- **Het eerste bezoek is traag.** Vinted staat ongeveer 30 profielopvragingen per minuut toe. De extensie houdt het bij 24, zodat je zelf normaal kunt blijven browsen. Een volle pagina van 96 artikelen met allemaal nieuwe verkopers duurt daardoor 3 à 4 minuten. Artikelen in beeld komen als eerste aan de beurt. Dankzij de cache gaat het bij volgende zoekopdrachten steeds sneller.
-- **Pagina's worden korter.** Vinted toont 96 artikelen per pagina. Wat verborgen wordt, vult de extensie niet aan, dus je ziet per pagina minder artikelen.
-- **De extensie kan stukgaan als Vinted de site verandert.** Ze leunt op de interne structuur van de site en op niet-officiële API's. Werkt ze ineens niet meer, kijk dan eerst of er een nieuwe versie is.
-- **Gebruiksvoorwaarden.** De extensie doet alleen opvragingen die je ook zelf zou doen als je op een verkoper klikt, en ze houdt zich aan Vinted's tempo. Toch gebruikt ze Vinted's interne, niet-officiële API's. Gebruik is op eigen risico.
-- **Alleen in de browser.** In de Vinted-app op je telefoon werkt dit niet. Op Android kan het wel met Firefox.
+- **Traag bij nieuwe verkopers.** Vinted staat ongeveer **30 profielopvragingen per minuut** toe. Daarboven volgt een `429` met `Retry-After: 60`. De extensie houdt het bij 24 per minuut, zodat je zelf normaal kunt blijven browsen. Een volle pagina met alleen onbekende verkopers duurt daardoor 3 à 4 minuten. Wat in beeld is, komt eerst aan de beurt. Door de cache gaat het steeds sneller.
+- **Automatisch aanvullen wacht.** Het begint pas als de huidige pagina helemaal bekend is, en stopt na 3 extra pagina's. Daarna klik je zelf op **Meer laden**.
+- **Aangevulde artikelen zijn eenvoudiger.** Het zijn eigen, kale kaarten. Favorieten en snelle acties werken daar niet; klik door naar het artikel.
+- **Alleen in de browser.** In de Vinted-app werkt dit niet. Op Android kan het wel met Firefox.
+
+## Als het stuk is
+
+Je staat er alleen voor (zie hierboven). Waar je kunt beginnen:
+
+| Symptoom | Waarschijnlijke oorzaak | Waar kijken |
+|---|---|---|
+| Geen labels, niets gebeurt | Vinted heeft de kaartstructuur veranderd | `CARD_RE` / `data-testid="product-item-id-…"` in `content.js` |
+| Labels blijven op `…` staan | Koppeling artikel → verkoper werkt niet meer | `parseInlineScripts()` en `page-hook.js` |
+| Alles wordt `?` | `/api/v2/users/<id>` is veranderd of geblokkeerd | `fetchUser()` |
+| Constant `429` in de console | Vinted heeft de limiet verlaagd | `RATE` in `content.js` |
+| **Meer laden** geeft niets | De Next.js-stroom is anders opgebouwd | `decodeFlight()` / `parseProductItems()` |
 
 ## Bestanden
 
 | Bestand | Rol |
 |---|---|
-| `manifest.json` | Extensie-manifest (MV3, Firefox en Chrome) |
-| `src/page-hook.js` | Draait in de pagina en leest mee met de API-antwoorden van Vinted (artikel → verkoper) |
-| `src/content.js` | Zoekt het land op, verbergt of dimt artikelen, toont labels en het statuslabel |
-| `src/content.css` | Stijlen voor labels, verbergen en dimmen |
+| `manifest.json` | Manifest V3, Firefox en Chrome |
+| `src/page-hook.js` | Draait in de pagina en leest mee met Vinted's API-antwoorden |
+| `src/content.js` | Opzoeken, filteren, labels, aanvullen, statuslabel |
+| `src/content.css` | Stijlen |
 | `src/popup.*` | Instellingenmenu |
+
+## Gebruiksvoorwaarden
+
+Dit is een onofficieel hulpmiddel, zonder enige band met Vinted. De extensie gebruikt Vinted's interne, niet-gedocumenteerde endpoints. Ze doet alleen opvragingen die je zelf ook zou doen door op een verkoper te klikken, en ze blijft onder het tempo dat Vinted toestaat. Toch kan het tegen Vinted's voorwaarden ingaan. Gebruik is volledig op eigen risico.
 
 ## Licentie
 
-MIT
+MIT. Doe ermee wat je wilt, maar verwacht niets.

@@ -27,7 +27,10 @@
     showUnknown: true,
     badges: true,
     showPill: true,
+    autoFill: true,
   };
+  const AUTOFILL_TARGET = 36; // aanvullen tot er minstens zoveel artikelen zichtbaar zijn
+  const AUTOFILL_MAX_PAGES = 3; // maximaal zoveel extra pagina's automatisch
   const USER_TTL = 60 * 864e5; // 60 dagen
   const ITEM_TTL = 30 * 864e5; // 30 dagen
   const MAX_ENTRIES = 30000;
@@ -285,7 +288,7 @@
 
   function badgeHost(card) {
     const link = card.querySelector('[data-testid$="--overlay-link"]');
-    const host = (link && link.parentElement) || card;
+    const host = (link && link.parentElement) || card.querySelector(".vnbf-card__img") || card;
     if (getComputedStyle(host).position === "static") host.style.position = "relative";
     return host;
   }
@@ -322,10 +325,14 @@
     const c = { in: 0, out: 0, pending: 0, unknown: 0 };
     const vh = window.innerHeight || 800;
     const needed = new Set();
+    syncContext();
+    const cards = [];
     for (const card of document.querySelectorAll('[data-testid^="product-item-id-"]')) {
       const m = CARD_RE.exec(card.getAttribute("data-testid"));
-      if (!m) continue;
-      const id = +m[1];
+      if (m) cards.push([card, +m[1]]);
+    }
+    for (const card of document.querySelectorAll(".vnbf-card")) cards.push([card, +card.dataset.vnbfItem]);
+    for (const [card, id] of cards) {
       let urgent = false;
       if (settings.enabled && !users.has(items.get(id)?.u)) {
         const r = card.getBoundingClientRect();
@@ -345,6 +352,7 @@
     if (settings.enabled) dropUnneeded(needed);
     counts = c;
     updatePill();
+    maybeAutoFill();
   }
 
   let laterTimer = null;
@@ -362,6 +370,249 @@
     if (renderQueued) return;
     renderQueued = true;
     requestAnimationFrame(() => { renderQueued = false; render(); });
+  }
+
+  // ---------- pagina aanvullen ----------
+  // Als er na het filteren te weinig artikelen overblijven, halen we de
+  // volgende pagina('s) van dezelfde zoekopdracht op en tonen we de artikelen
+  // onder de bestaande resultaten. We gebruiken daarvoor Vinted's eigen
+  // pagina-URL, zodat alle filters (merk, maat, prijs, sortering) meegaan.
+  const fill = { ctx: "", startPage: 1, lastPage: 1, autoPages: 0, loading: false, ended: false, error: "", el: null, seen: new Set() };
+
+  const isCatalog = () => location.pathname.startsWith("/catalog");
+
+  function contextKey() {
+    const u = new URL(location.href);
+    u.searchParams.delete("time");
+    return u.pathname + "?" + u.searchParams.toString();
+  }
+
+  function pageUrl(n) {
+    const u = new URL(location.href);
+    u.searchParams.delete("time");
+    u.searchParams.set("page", String(n));
+    return u.pathname + u.search;
+  }
+
+  function syncContext() {
+    const key = contextKey();
+    if (key === fill.ctx) return;
+    if (fill.el) fill.el.remove();
+    const page = parseInt(new URL(location.href).searchParams.get("page") || "1", 10) || 1;
+    Object.assign(fill, { ctx: key, startPage: page, lastPage: page, autoPages: 0, loading: false, ended: false, error: "", el: null, seen: new Set() });
+    document.documentElement.classList.remove("vnbf-has-extra");
+  }
+
+  // React Server Components-stroom uit een opgehaalde HTML-pagina halen
+  function decodeFlight(html) {
+    let out = "";
+    const re = /self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g;
+    let m;
+    while ((m = re.exec(html))) {
+      try { out += JSON.parse(m[1]); } catch (_) {}
+    }
+    return out;
+  }
+
+  function objectAt(s, i) {
+    let depth = 0, inStr = false, esc = false;
+    for (let k = i; k < s.length; k++) {
+      const ch = s[k];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}" && --depth === 0) return s.slice(i, k + 1);
+    }
+    return null;
+  }
+
+  function parseProductItems(flight) {
+    const key = '"productItem":';
+    const list = [];
+    for (let p = flight.indexOf(key); p !== -1; p = flight.indexOf(key, p + key.length)) {
+      const raw = objectAt(flight, p + key.length);
+      if (!raw) continue;
+      try {
+        const o = JSON.parse(raw);
+        if (typeof o.id === "number") list.push(o);
+      } catch (_) {}
+    }
+    return list;
+  }
+
+  function money(p) {
+    if (!p || p.amount == null) return "";
+    try {
+      return new Intl.NumberFormat("nl-NL", { style: "currency", currency: p.currencyCode || "EUR" }).format(+p.amount);
+    } catch (_) { return `€ ${p.amount}`; }
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text) e.textContent = text;
+    return e;
+  }
+
+  function buildCard(it) {
+    const card = el("div", "vnbf-card vnbf-cell");
+    card.dataset.vnbfItem = String(it.id);
+    const a = el("a", "vnbf-card__img");
+    a.href = it.url || `/items/${it.id}`;
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.alt = it.title || "";
+    const thumb = it.thumbnailUrl || (it.thumbnailUrls && it.thumbnailUrls[0]) || (it.photos && it.photos[0] && it.photos[0].url);
+    if (thumb) img.src = thumb;
+    a.appendChild(img);
+    card.appendChild(a);
+    const body = el("a", "vnbf-card__body");
+    body.href = a.href;
+    const box = it.itemBox || {};
+    const first = typeof box.firstLine === "string" && box.firstLine !== "$undefined" ? box.firstLine : it.title;
+    body.append(el("div", "vnbf-card__brand", first || ""));
+    if (typeof box.secondLine === "string" && box.secondLine !== "$undefined") body.append(el("div", "vnbf-card__sub", box.secondLine));
+    body.append(el("div", "vnbf-card__price", money(it.price)));
+    if (it.totalItemPrice) body.append(el("div", "vnbf-card__total", `${money(it.totalItemPrice)} incl.`));
+    card.appendChild(body);
+    return card;
+  }
+
+  function nativeGrid() {
+    const first = document.querySelector('[data-testid^="product-item-id-"]');
+    const item = first && (first.closest('[data-testid="grid-item"]') || first.closest('[class*="feed-grid__item"]'));
+    return item ? item.parentElement : null;
+  }
+
+  // Kolombreedte van Vinted's eigen raster overnemen
+  function matchColumns() {
+    if (!fill.el) return;
+    // Smalste zichtbare artikelkaart = één kolom (banners zijn breder)
+    let min = Infinity;
+    for (const card of document.querySelectorAll('[data-testid^="product-item-id-"]')) {
+      if (!CARD_RE.test(card.getAttribute("data-testid"))) continue;
+      const w = card.getBoundingClientRect().width;
+      if (w > 60 && w < min) min = w;
+    }
+    if (min < Infinity) fill.el.style.setProperty("--vnbf-col", `${Math.floor(min) - 2}px`);
+  }
+
+  function ensureBlock() {
+    if (fill.el && fill.el.isConnected) { matchColumns(); return fill.el; }
+    const grid = nativeGrid();
+    if (!grid) return null;
+    const sec = el("section", "vnbf-extra");
+    sec.append(el("div", "vnbf-extra__head"), el("div", "vnbf-extra__grid"), el("div", "vnbf-extra__foot"));
+    grid.insertAdjacentElement("afterend", sec);
+    fill.el = sec;
+    matchColumns();
+    return sec;
+  }
+
+  function updateBlock() {
+    const sec = fill.el;
+    if (!sec) return;
+    const label = settings.countries.join("/") || "gekozen landen";
+    const head = sec.querySelector(".vnbf-extra__head");
+    const range = fill.lastPage > fill.startPage + 1 ? `pagina ${fill.startPage + 1}–${fill.lastPage}` : `pagina ${fill.startPage + 1}`;
+    setText(head, fill.lastPage > fill.startPage ? `Aangevuld uit ${range} · alleen ${label}` : "");
+    const foot = sec.querySelector(".vnbf-extra__foot");
+    foot.textContent = "";
+    if (fill.startPage > 1) {
+      const prev = el("a", "vnbf-extra__link", "← Vorige pagina");
+      prev.href = pageUrl(fill.startPage - 1);
+      foot.append(prev);
+    }
+    if (fill.loading) foot.append(el("span", "vnbf-extra__status", `Pagina ${fill.lastPage + 1} laden…`));
+    else if (fill.error) foot.append(el("span", "vnbf-extra__status", fill.error));
+    if (!fill.ended) {
+      const more = el("button", "vnbf-extra__more", `Meer laden (pagina ${fill.lastPage + 1})`);
+      more.type = "button";
+      more.disabled = fill.loading;
+      more.addEventListener("click", () => loadNextPage());
+      const next = el("a", "vnbf-extra__link", `Ga naar pagina ${fill.lastPage + 1} →`);
+      next.href = pageUrl(fill.lastPage + 1);
+      foot.append(more, next);
+    } else {
+      foot.append(el("span", "vnbf-extra__status", "Geen verdere resultaten."));
+    }
+    document.documentElement.classList.toggle("vnbf-has-extra", fill.lastPage > fill.startPage);
+  }
+
+  async function loadNextPage() {
+    if (fill.loading || fill.ended || !isCatalog()) return;
+    const sec = ensureBlock();
+    if (!sec) return;
+    const ctx = fill.ctx;
+    const page = fill.lastPage + 1;
+    fill.loading = true;
+    fill.error = "";
+    updateBlock();
+    try {
+      const res = await pageFetch(location.origin + pageUrl(page), { credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      const list = parseProductItems(decodeFlight(await res.text()));
+      if (ctx !== fill.ctx) return; // intussen naar een andere zoekopdracht gegaan
+      const native = new Set(
+        [...document.querySelectorAll('[data-testid^="product-item-id-"]')]
+          .map((c) => CARD_RE.exec(c.getAttribute("data-testid")))
+          .filter(Boolean)
+          .map((m) => +m[1])
+      );
+      const pairs = [];
+      const grid = sec.querySelector(".vnbf-extra__grid");
+      let added = 0;
+      for (const it of list) {
+        if (native.has(it.id) || fill.seen.has(it.id)) continue;
+        fill.seen.add(it.id);
+        if (it.user && typeof it.user.id === "number") pairs.push([it.id, it.user.id]);
+        grid.appendChild(buildCard(it));
+        added++;
+      }
+      addPairs(pairs);
+      fill.lastPage = page;
+      if (!list.length) fill.ended = true;
+    } catch (e) {
+      if (ctx === fill.ctx) fill.error = "Laden mislukt — probeer het later opnieuw.";
+    } finally {
+      if (ctx === fill.ctx) {
+        fill.loading = false;
+        updateBlock();
+        renderSoon();
+      }
+    }
+  }
+
+  function maybeAutoFill() {
+    if (fill.el && !fill.el.isConnected) fill.el = null;
+    const active = settings.enabled && settings.mode === "hide" && isCatalog();
+    if (!active) {
+      if (fill.el) fill.el.hidden = true;
+      document.documentElement.classList.remove("vnbf-has-extra");
+      return;
+    }
+    if (fill.el) {
+      fill.el.hidden = false;
+      document.documentElement.classList.toggle("vnbf-has-extra", fill.lastPage > fill.startPage);
+    }
+    const visible = counts.in + (settings.showUnknown ? counts.unknown : 0);
+    const total = visible + counts.out + counts.pending;
+    if (!total || fill.loading || fill.ended) return;
+    if (!fill.el && counts.out > 0 && ensureBlock()) updateBlock(); // knop 'Meer laden' zodra er iets verborgen is
+    if (
+      settings.autoFill &&
+      counts.pending === 0 &&
+      visible < AUTOFILL_TARGET &&
+      fill.autoPages < AUTOFILL_MAX_PAGES
+    ) {
+      fill.autoPages++;
+      loadNextPage();
+    }
   }
 
   // ---------- statuslabel ----------
@@ -430,8 +681,8 @@
 
   const ours = (n) =>
     n.nodeType === 1
-      ? n.classList.contains("vnbf-badge") || n.classList.contains("vnbf-pill") || !!n.closest(".vnbf-pill")
-      : !!(n.parentElement && n.parentElement.closest(".vnbf-pill, .vnbf-badge"));
+      ? n.classList.contains("vnbf-badge") || !!n.closest(".vnbf-pill, .vnbf-extra")
+      : !!(n.parentElement && n.parentElement.closest(".vnbf-pill, .vnbf-badge, .vnbf-extra"));
   const observer = new MutationObserver((muts) => {
     for (const m of muts) {
       if (ours(m.target)) continue;

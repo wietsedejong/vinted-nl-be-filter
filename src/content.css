@@ -80,3 +80,62 @@ html.vnbf-off .vnbf-badge { display: none; }
 .vnbf-pill__reveal { color: #007782; background: rgba(0, 119, 130, 0.1); }
 .vnbf-pill__reveal[hidden] { display: none; }
 .vnbf-pill button:focus-visible { outline: 2px solid #007782; outline-offset: 2px; }
+
+/* Aangevulde artikelen van volgende pagina's */
+html.vnbf-has-extra:not(.vnbf-off) [data-testid="catalog-pagination"] { display: none !important; }
+.vnbf-extra[hidden] { display: none; }
+.vnbf-extra { margin: 8px 0 24px; }
+.vnbf-extra__head {
+  margin: 8px 0 12px;
+  font: 600 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #6b6b68;
+}
+.vnbf-extra__head:empty { display: none; }
+.vnbf-extra__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--vnbf-col, 150px), 1fr));
+  gap: 20px 12px;
+}
+.vnbf-card { display: flex; flex-direction: column; min-width: 0; }
+.vnbf-card__img {
+  position: relative;
+  display: block;
+  aspect-ratio: 310 / 430;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f2f2ef;
+}
+.vnbf-card__img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vnbf-card__body {
+  display: block;
+  padding-top: 6px;
+  color: inherit;
+  text-decoration: none;
+  font: 13px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.vnbf-card__brand, .vnbf-card__sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vnbf-card__brand { color: #1d1d1b; }
+.vnbf-card__sub { color: #6b6b68; font-size: 12px; }
+.vnbf-card__price { margin-top: 4px; color: #6b6b68; font-size: 12px; }
+.vnbf-card__total { color: #007782; font-weight: 600; }
+.vnbf-extra__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px 20px;
+  margin-top: 24px;
+  font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.vnbf-extra__more {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  background: #007782;
+  font: 600 13px/1 system-ui, -apple-system, "Segoe UI", sans-serif;
+  cursor: pointer;
+}
+.vnbf-extra__more:disabled { opacity: 0.5; cursor: default; }
+.vnbf-extra__link { color: #007782; font-weight: 600; text-decoration: none; }
+.vnbf-extra__status { color: #6b6b68; }

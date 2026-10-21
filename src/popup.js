@@ -7,6 +7,7 @@ const DEFAULTS = {
   showUnknown: true,
   badges: true,
   showPill: true,
+  autoFill: true,
 };
 
 // Landen waar Vinted actief is (selectie; NL/BE bovenaan)
@@ -28,6 +29,7 @@ async function init() {
   $("#showUnknown").checked = s.showUnknown;
   $("#badges").checked = s.badges;
   $("#showPill").checked = s.showPill;
+  $("#autoFill").checked = s.autoFill;
   for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === s.mode;
 
   const box = $("#countries");
@@ -45,7 +47,7 @@ async function init() {
     box.appendChild(label);
   }
 
-  for (const id of ["enabled", "showUnknown", "badges", "showPill"]) {
+  for (const id of ["enabled", "showUnknown", "badges", "showPill", "autoFill"]) {
     $("#" + id).addEventListener("change", (e) => api.storage.sync.set({ [id]: e.target.checked }));
   }
   for (const r of document.querySelectorAll('input[name="mode"]')) {
