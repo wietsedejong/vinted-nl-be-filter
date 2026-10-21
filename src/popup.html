@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <title>Vinted NL/BE-filter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>Vinted-filter</h1>
+    <label class="switch" title="Filter aan/uit">
+      <input type="checkbox" id="enabled">
+      <span></span>
+    </label>
+  </header>
+
+  <section>
+    <h2>Toon verkopers uit</h2>
+    <div id="countries" class="countries"></div>
+  </section>
+
+  <section>
+    <h2>Artikelen van buiten deze landen</h2>
+    <label class="radio"><input type="radio" name="mode" value="hide"> Verbergen</label>
+    <label class="radio"><input type="radio" name="mode" value="dim"> Dimmen</label>
+  </section>
+
+  <section>
+    <label class="check"><input type="checkbox" id="showUnknown"> Toon artikelen met onbekend land</label>
+    <label class="check"><input type="checkbox" id="badges"> Landlabel op foto's</label>
+    <label class="check"><input type="checkbox" id="showPill"> Statuslabel linksonder</label>
+  </section>
+
+  <footer>
+    <span id="cacheInfo"></span>
+    <button type="button" id="clear">Cache wissen</button>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

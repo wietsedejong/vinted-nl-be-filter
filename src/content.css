@@ -1,0 +1,82 @@
+/* Vinted NL/BE-filter */
+
+/* Verbergen (standaard) */
+html:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="out"],
+html.vnbf-hide-unknown:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="unknown"] {
+  display: none !important;
+}
+
+/* Dimmen (modus "dim", of tijdelijk tonen) */
+html:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="out"],
+html:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="out"],
+html.vnbf-hide-unknown:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="unknown"],
+html.vnbf-hide-unknown:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="unknown"] {
+  opacity: 0.28;
+  filter: grayscale(0.8);
+  transition: opacity 0.15s ease;
+}
+html:not(.vnbf-off) .vnbf-cell[data-vnbf="out"]:hover {
+  opacity: 0.85;
+  filter: none;
+}
+
+/* Nog bezig met ophalen */
+html:not(.vnbf-off) .vnbf-cell[data-vnbf="pending"] {
+  opacity: 0.6;
+}
+
+/* Landlabel op de foto */
+.vnbf-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 3;
+  max-width: calc(100% - 48px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font: 600 11px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(20, 20, 20, 0.72);
+  backdrop-filter: blur(2px);
+}
+.vnbf-badge[data-state="in"] { background: rgba(0, 119, 130, 0.92); }
+.vnbf-badge[data-state="out"] { background: rgba(120, 120, 120, 0.9); }
+.vnbf-badge[data-state="unknown"] { background: rgba(160, 110, 0, 0.9); }
+.vnbf-badge[data-state="pending"] { background: rgba(20, 20, 20, 0.45); }
+html.vnbf-off .vnbf-badge { display: none; }
+
+/* Statuslabel linksonder */
+.vnbf-pill {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 6px;
+  border-radius: 999px;
+  font: 500 12.5px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #1d1d1b;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.vnbf-pill[hidden] { display: none; }
+.vnbf-pill button {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 650;
+  font-size: 12px;
+}
+.vnbf-pill__toggle { color: #fff; background: #007782; }
+.vnbf-pill__toggle[data-on="false"] { background: #9a9a9a; }
+.vnbf-pill__reveal { color: #007782; background: rgba(0, 119, 130, 0.1); }
+.vnbf-pill__reveal[hidden] { display: none; }
+.vnbf-pill button:focus-visible { outline: 2px solid #007782; outline-offset: 2px; }
