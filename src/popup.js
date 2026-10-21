@@ -1,5 +1,9 @@
+// Instellingenmenu (klik op het extensie-icoon).
+// Alles wordt opgeslagen in browser.storage.sync; content.js luistert mee en past
+// wijzigingen direct toe op open Vinted-tabbladen.
 const api = globalThis.browser ?? globalThis.chrome;
 
+// Moet gelijk blijven aan DEFAULTS in content.js.
 const DEFAULTS = {
   enabled: true,
   countries: ["NL", "BE"],
@@ -22,6 +26,7 @@ const COUNTRIES = [
 
 const $ = (s) => document.querySelector(s);
 
+/** Formulier vullen met de huidige instellingen en wijzigingen direct opslaan. */
 async function init() {
   const s = { ...DEFAULTS, ...(await api.storage.sync.get(DEFAULTS)) };
 
@@ -65,6 +70,7 @@ async function init() {
   });
 }
 
+/** Toont hoeveel verkopers er in de cache staan. */
 async function showCacheInfo() {
   const { vnbfUsers = {} } = await api.storage.local.get("vnbfUsers");
   const n = Object.keys(vnbfUsers).length;

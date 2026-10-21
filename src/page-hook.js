@@ -9,12 +9,15 @@
   const MSG = "vnbf:pairs";
   const MAX_LEN = 5_000_000;
 
+  /** Koppelingen doorgeven aan content.js (die draait in een afgeschermde 'wereld'). */
   function post(pairs) {
     if (pairs.length) window.postMessage({ type: MSG, pairs }, location.origin);
   }
 
   // Zoek in willekeurige JSON naar objecten die op een artikel lijken:
   // { id: <nummer>, user: { id: <nummer> }, title|url }
+  // VINTED-AFHANKELIJK: zo zien artikelen eruit in /svc-catalogue/items en feeds.
+  // Bewust ruim gehouden, zodat het ook werkt als Vinted velden toevoegt.
   function walk(node, pairs, depth = 0) {
     if (!node || typeof node !== "object" || depth > 10) return;
     if (Array.isArray(node)) {
@@ -36,6 +39,7 @@
   }
 
   // React Server Components-tekst (bij navigatie binnen de site)
+  // VINTED-AFHANKELIJK: "productItem":{"id":…} met daarin "user":{"id":…}.
   function fromRscText(text) {
     const pairs = [];
     const t = text.replace(/\\"/g, '"');
@@ -48,6 +52,7 @@
     return pairs;
   }
 
+  /** Eén API-antwoord verwerken: JSON doorzoeken, of anders als RSC-tekst lezen. */
   function handle(url, text) {
     try {
       if (!text || text.length > MAX_LEN || text.indexOf('"user"') === -1 && text.indexOf('\\"user\\"') === -1) return;
@@ -62,6 +67,7 @@
     } catch (_) { /* geen JSON of onbekend formaat: negeren */ }
   }
 
+  /** Alleen antwoorden van vinted.nl/.be (incl. api.vinted.nl), geen afbeeldingen/scripts. */
   function interesting(url) {
     try {
       const u = new URL(url, location.href);
@@ -69,7 +75,8 @@
     } catch (_) { return false; }
   }
 
-  // fetch
+  // fetch vervangen door een versie die meeleest. Het antwoord wordt gekloond,
+  // zodat Vinted zelf het origineel ongewijzigd krijgt.
   const origFetch = window.fetch;
   window.fetch = function (...args) {
     const p = origFetch.apply(this, args);
@@ -88,7 +95,7 @@
     return p;
   };
 
-  // XMLHttpRequest (axios e.d.)
+  // Hetzelfde voor XMLHttpRequest, voor het geval Vinted (een deel van) de data zo ophaalt.
   const XO = XMLHttpRequest.prototype.open;
   XMLHttpRequest.prototype.open = function (method, url, ...rest) {
     try {

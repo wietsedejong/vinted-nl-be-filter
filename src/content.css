@@ -1,4 +1,11 @@
-/* Vinted NL/BE-filter */
+/* Vinted NL/BE-filter
+ *
+ * content.js zet:
+ *  - op <html>: vnbf-off (filter uit), vnbf-mode-dim, vnbf-reveal (tijdelijk tonen),
+ *               vnbf-hide-unknown, vnbf-has-extra (er is aangevuld);
+ *  - op elk rastervak: class vnbf-cell + data-vnbf="in|out|pending|unknown".
+ * Het verbergen/dimmen gebeurt dus volledig hier, op basis van die klassen.
+ */
 
 /* Verbergen (standaard) */
 html:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="out"],
@@ -81,7 +88,9 @@ html.vnbf-off .vnbf-badge { display: none; }
 .vnbf-pill__reveal[hidden] { display: none; }
 .vnbf-pill button:focus-visible { outline: 2px solid #007782; outline-offset: 2px; }
 
-/* Aangevulde artikelen van volgende pagina's */
+/* Aangevulde artikelen van volgende pagina's.
+ * VINTED-AFHANKELIJK: data-testid="catalog-pagination" is Vinted's eigen paginering;
+ * die verbergen we als we zelf hebben aangevuld (anders krijg je dubbele artikelen). */
 html.vnbf-has-extra:not(.vnbf-off) [data-testid="catalog-pagination"] { display: none !important; }
 .vnbf-extra[hidden] { display: none; }
 .vnbf-extra { margin: 8px 0 24px; }

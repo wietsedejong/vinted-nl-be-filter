@@ -74,7 +74,13 @@ Alles loopt via je eigen browsersessie op vinted.nl. Er gaan geen gegevens naar 
 
 ## Als het stuk is
 
-Je staat er alleen voor (zie hierboven). Waar je kunt beginnen:
+Je staat er alleen voor (zie hierboven). Elke plek in de code die afhangt van hoe Vinted's site in elkaar zit, is gemarkeerd met `VINTED-AFHANKELIJK`:
+
+```bash
+grep -rn "VINTED-AFHANKELIJK" src/
+```
+
+Daar begin je. Per symptoom:
 
 | Symptoom | Waarschijnlijke oorzaak | Waar kijken |
 |---|---|---|
