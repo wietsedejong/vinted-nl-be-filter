@@ -30,7 +30,7 @@
       u && typeof u === "object" && typeof u.id === "number" &&
       ("title" in node || "url" in node)
     ) {
-      pairs.push([node.id, u.id]);
+      pairs.push([node.id, u.id, typeof node.title === "string" ? node.title : ""]);
     }
     for (const k in node) {
       const v = node[k];
@@ -47,7 +47,8 @@
     for (let i = 1; i < parts.length; i++) {
       const id = parseInt(parts[i], 10);
       const m = parts[i].match(/"user":\{"id":(\d+)/);
-      if (id && m) pairs.push([id, parseInt(m[1], 10)]);
+      const tt = parts[i].match(/"title":"([^"]{1,300})"/);
+      if (id && m) pairs.push([id, parseInt(m[1], 10), tt ? tt[1] : ""]);
     }
     return pairs;
   }

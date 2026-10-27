@@ -27,6 +27,7 @@ Herken je jezelf niet in het lijstje hierboven? Dan is dit waarschijnlijk niets 
 - **Filtert op land van de verkoper.** Standaard NL en BE. Andere landen vink je aan in het menu.
 - **Verbergt of dimt** artikelen van buiten die landen.
 - **Vult de pagina aan.** Blijven er na het filteren te weinig artikelen over, dan haalt de extensie de volgende pagina('s) van dezelfde zoekopdracht op, met dezelfde filters. Die artikelen verschijnen onder de bestaande resultaten. Met **Meer laden** haal je er handmatig nog meer bij.
+- **Snel voorfilteren op taal.** Opzoeken gaat in deze volgorde: eerst artikelen met een Nederlandse titel, dan Engelse of onduidelijke titels, en als laatste titels in een andere taal. Artikelen met een duidelijk Franse, Duitse, Spaanse enz. titel worden meteen voorlopig verborgen (label `FR?`), tot het land van de verkoper bekend is. Is de verkoper toch Belg of Nederlander, dan verschijnt het artikel alsnog. Dit staat aan; uitzetten kan in het menu.
 - **Landlabel op elke foto**, bijvoorbeeld `NL · Utrecht`. Zo zie je ook meteen of ophalen kan.
 - **Statuslabel linksonder.** Toont hoeveel artikelen getoond, verborgen en nog aan het laden zijn. Je zet het filter er aan en uit, en met **toon** zie je even wat er verborgen is.
 - **Cache.** Een verkoper die al eens is opgezocht, is de volgende keer direct bekend.

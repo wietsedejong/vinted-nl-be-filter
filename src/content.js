@@ -36,6 +36,7 @@
     badges: true,
     showPill: true,
     autoFill: true,
+    langPrefilter: true,
   };
   const AUTOFILL_TARGET = 36; // aanvullen tot er minstens zoveel artikelen zichtbaar zijn
   const AUTOFILL_MAX_PAGES = 3; // maximaal zoveel extra pagina's automatisch
@@ -118,19 +119,19 @@
    * @param {string} key     Unieke sleutel: "u<userId>" of "i<itemId>". Gebruikt om te
    *                         prioriteren (promote) of te schrappen (dropUnneeded).
    * @param {Function} task  Async functie die het verzoek doet.
-   * @param {boolean} urgent true = artikel staat in beeld, gaat voor.
+   * @param {number} prio    Prioriteit: lager = eerder (zie priorityFor()).
    * @returns {Promise}      Resultaat van task (of CancelError / RetryError).
    */
-  function schedule(key, task, urgent) {
+  function schedule(key, task, prio) {
     return new Promise((resolve, reject) => {
-      limiter.queue.push({ key, task, resolve, reject, urgent: !!urgent });
+      limiter.queue.push({ key, task, resolve, reject, prio });
       pump();
     });
   }
 
-  /** Opdracht alsnog voorrang geven, bijv. omdat je ernaartoe gescrold bent. */
-  function promote(key) {
-    for (const job of limiter.queue) if (job.key === key) job.urgent = true;
+  /** Prioriteit van een opdracht verhogen (lager getal), bijv. omdat je ernaartoe gescrold bent. */
+  function promote(key, prio) {
+    for (const job of limiter.queue) if (job.key === key && prio < job.prio) job.prio = prio;
   }
 
   /**
@@ -140,7 +141,8 @@
    *  - minstens `gap` ms tussen twee verzoeken;
    *  - nooit meer dan RATE verzoeken in de laatste WINDOW ms (glijdend venster);
    *  - na een 429 pauzeren tot `pausedUntil`.
-   * Urgente opdrachten (in beeld) gaan voor; verder op volgorde van binnenkomst.
+   * Laagste prioriteitsgetal gaat eerst (zie priorityFor()); bij gelijke prioriteit
+   * op volgorde van binnenkomst.
    */
   function pump() {
     for (;;) {
@@ -153,8 +155,8 @@
         if (!limiter.timer) limiter.timer = setTimeout(() => { limiter.timer = null; pump(); renderSoon(); }, wait);
         return;
       }
-      let idx = limiter.queue.findIndex((j) => j.urgent);
-      if (idx === -1) idx = 0;
+      let idx = 0;
+      for (let k = 1; k < limiter.queue.length; k++) if (limiter.queue[k].prio < limiter.queue[idx].prio) idx = k;
       const job = limiter.queue.splice(idx, 1)[0];
       limiter.active++;
       limiter.last = now;
@@ -192,10 +194,10 @@
   }
 
   /** Plant fn in via de wachtrij en probeert het tot `tries` keer bij een RetryError (429/5xx). */
-  async function withRetry(key, fn, urgent, tries = 4) {
+  async function withRetry(key, fn, prio, tries = 4) {
     for (let i = 0; i < tries; i++) {
       try {
-        const out = await schedule(key, fn, urgent);
+        const out = await schedule(key, fn, prio);
         limiter.backoff = 0;
         return out;
       } catch (e) {
@@ -248,22 +250,22 @@
   }
 
   /** Verkoper opzoeken als dat nog niet gebeurd/bezig is. Resultaat komt in `users`. */
-  function requestUser(uid, urgent) {
-    if (pendingUsers.has(uid)) { if (urgent) promote("u" + uid); return; }
+  function requestUser(uid, prio) {
+    if (pendingUsers.has(uid)) { promote("u" + uid, prio); return; }
     if (failedUsers.has(uid) || users.has(uid)) return;
     pendingUsers.add(uid);
-    withRetry("u" + uid, () => fetchUser(uid), urgent)
+    withRetry("u" + uid, () => fetchUser(uid), prio)
       .then((u) => { users.set(uid, u); saveCacheSoon(); })
       .catch((e) => { if (!(e instanceof CancelError)) failedUsers.add(uid); })
       .finally(() => { pendingUsers.delete(uid); renderSoon(); });
   }
 
   /** Verkoper van een artikel opzoeken via de artikelpagina (uitwijk). Resultaat in `items`. */
-  function requestItemOwner(itemId, urgent) {
-    if (pendingItems.has(itemId)) { if (urgent) promote("i" + itemId); return; }
+  function requestItemOwner(itemId, prio) {
+    if (pendingItems.has(itemId)) { promote("i" + itemId, prio); return; }
     if (failedItems.has(itemId) || items.has(itemId)) return;
     pendingItems.add(itemId);
-    withRetry("i" + itemId, () => fetchItemOwner(itemId), urgent)
+    withRetry("i" + itemId, () => fetchItemOwner(itemId), prio)
       .then((uid) => { items.set(itemId, { u: uid, t: Date.now() }); saveCacheSoon(); })
       .catch((e) => { if (!(e instanceof CancelError)) failedItems.add(itemId); })
       .finally(() => { pendingItems.delete(itemId); renderSoon(); });
@@ -272,13 +274,14 @@
   // ---------- artikel -> verkoper koppelen ----------
   /**
    * Nieuwe koppelingen artikel → verkoper opslaan.
-   * @param {Array<[number, number]>} pairs  Lijst van [itemId, userId].
+   * @param {Array<[number, number, string?]>} pairs  Lijst van [itemId, userId, titel].
    */
   function addPairs(pairs) {
     const t = Date.now();
     let added = 0;
-    for (const [i, u] of pairs) {
+    for (const [i, u, title] of pairs) {
       if (!i || !u) continue;
+      if (title && !titles.has(i)) titles.set(i, title);
       const cur = items.get(i);
       if (!cur || cur.u !== u) { items.set(i, { u, t }); added++; }
     }
@@ -311,10 +314,91 @@
       for (let i = 1; i < parts.length; i++) {
         const id = parseInt(parts[i], 10);
         const m = parts[i].match(/"user":\{"id":(\d+)/);
-        if (id && m) pairs.push([id, +m[1]]);
+        const tt = parts[i].match(/"title":"([^"]{1,300})"/);
+        if (id && m) pairs.push([id, +m[1], tt ? tt[1] : ""]);
       }
       addPairs(pairs);
     }
+  }
+
+  // ---------- taal van de titel ----------
+  // Snelle, lokale schatting van de taal van een titel. Wordt gebruikt om
+  //  1. de volgorde van opzoeken te bepalen (Nederlands eerst, dan Engels, dan de rest);
+  //  2. titels in een duidelijk andere taal voorlopig te verbergen tot het land bekend is.
+  // Dit is een vuistregel, geen zekerheid: het land van de verkoper blijft leidend.
+  // Een Franstalige Belg wordt eerst verborgen en verschijnt na controle alsnog.
+  const titles = new Map(); // itemId -> titel
+  const langs = new Map(); // itemId -> "nl" | "en" | "fr" | ... | "" (onbekend)
+
+  const LANG_WORDS = {
+    nl: "de het een en met van voor maat mt jurk broek trui jas jasje schoenen laarzen nieuw nieuwe zwart zwarte wit witte blauw blauwe rood rode groen groene grijs grijze bruin bruine roze heren dames meisje meisjes jongen jongens kinder kinderen vest rok tas sokken spijkerbroek leer leren wol wollen katoen nooit gedragen kaartje label mooie mooi leuke leuk lange korte mouw mouwen maanden jaar zgan nog niet maar ook zomer winter jurkje truitje shirtje setje stoel tafel kast lampje boek boeken speelgoed",
+    en: "the and with for size dress jeans shirt tshirt jacket coat shoes new black white blue red green grey gray brown pink women womens woman men mens kids girl girls boy boys sweater jumper hoodie top skirt bag boots never worn tags tag long short sleeve sleeves oversized cute beautiful set baby months years summer winter",
+    fr: "de en le la les des du et pull laine coton cuir haute coupe avec pour taille robe pantalon pull veste manteau chaussures neuf neuve noir noire blanc blanche bleu bleue rouge vert verte gris grise marron femme homme enfant fille garçon sac jupe manches très état jamais porté portée étiquette jolie joli bon tbe mois ans été hiver chemise baskets",
+    de: "der die das und mit für größe grösse gr kleid hose jacke mantel schuhe neu neue schwarz schwarze weiß weiss weiße blau blaue rot rote grün grau braun damen herren mädchen junge tasche rock stiefel ärmel getragen etikett schöne schön sommer winter pullover hemd strickjacke",
+    es: "de la el los las y con para talla vestido pantalón pantalones chaqueta abrigo zapatos nuevo nueva negro negra blanco blanca azul rojo roja verde gris marrón mujer hombre niña niño bolso falda manga mangas sin estrenar etiqueta bonito bonita camiseta sudadera zapatillas",
+    it: "di da la il lo gli e con per taglia vestito pantaloni giacca cappotto scarpe nuovo nuova nero nera bianco bianca blu rosso rossa verde grigio marrone donna uomo bambina bambino borsa gonna maniche mai indossato etichetta bellissimo bellissima maglia maglione felpa",
+    pl: "z i dla rozmiar sukienka spodnie kurtka płaszcz buty nowa nowy nowe czarna czarny biała biały niebieska damska damski męska męski dziecięca torebka spódnica sweter bluza koszula",
+    pt: "de da do o os as e com para tamanho vestido calças casaco sapatos novo nova preto preta branco branca azul vermelho verde cinzento mulher homem menina menino saia mala camisola",
+    lt: "dydis suknelė kelnės striukė batai naujas nauja juoda balta mėlyna moteriška vyriška",
+  };
+  const LANG_SETS = Object.fromEntries(Object.entries(LANG_WORDS).map(([k, v]) => [k, new Set(v.split(" "))]));
+  // Tekens die vrijwel alleen in bepaalde talen voorkomen
+  const LANG_CHARS = [
+    [/[ąęłśżźćń]/, "pl"],
+    [/[ėųįūčšž]/, "lt"],
+    [/[ãõ]/, "pt"],
+    [/ñ/, "es"],
+    [/ß/, "de"],
+    [/[àâçèêîôûœ]/, "fr"],
+  ];
+
+  /** Schat de taal van een titel. Geeft "" als het niet duidelijk is (bijv. alleen een merknaam). */
+  function detectLang(text) {
+    if (!text) return "";
+    const t = text.toLowerCase();
+    const score = {};
+    for (const [re, lang] of LANG_CHARS) if (re.test(t)) score[lang] = (score[lang] || 0) + 2;
+    for (const w of t.split(/[^a-zà-ÿąćęłńśźżėųįūčšžãõñß]+/)) {
+      if (w.length < 1) continue;
+      for (const lang in LANG_SETS) if (LANG_SETS[lang].has(w)) score[lang] = (score[lang] || 0) + 1;
+    }
+    let best = "", bestScore = 0, second = 0;
+    for (const [lang, sc] of Object.entries(score)) {
+      if (sc > bestScore) { second = bestScore; best = lang; bestScore = sc; }
+      else if (sc > second) second = sc;
+    }
+    return bestScore > second ? best : "";
+  }
+
+  /**
+   * Taal van een artikel: uit de titel in de data, of anders uit de alt-tekst
+   * van de foto op de pagina. Wordt één keer per artikel bepaald.
+   * VINTED-AFHANKELIJK: alt-tekst van de foto bevat (een deel van) de titel.
+   */
+  function langOf(id, card) {
+    if (langs.has(id)) return langs.get(id);
+    let title = titles.get(id);
+    if (!title && card) {
+      const img = card.querySelector("img[alt]");
+      title = img ? img.getAttribute("alt") : "";
+    }
+    if (!title) return "";
+    const lang = detectLang(title);
+    langs.set(id, lang);
+    return lang;
+  }
+
+  const isForeign = (lang) => !!lang && lang !== "nl" && lang !== "en";
+
+  /**
+   * Volgorde van opzoeken (lager = eerder):
+   *  0 Nederlandse titel, in beeld     1 Engelse/onduidelijke titel, in beeld
+   *  2 Nederlandse titel, buiten beeld 3 Engelse/onduidelijke titel, buiten beeld
+   *  4 titel in een andere taal (wordt voorlopig verborgen, dus als laatste)
+   */
+  function priorityFor(lang, visible) {
+    if (isForeign(lang)) return 4;
+    return (visible ? 0 : 2) + (lang === "nl" ? 0 : 1);
   }
 
   // ---------- weergave ----------
@@ -341,23 +425,32 @@
    *  - "in":      verkoper uit een gekozen land  → tonen
    *  - "out":     verkoper uit een ander land     → verbergen/dimmen
    *  - "unknown": opzoeken mislukt of land onbekend → tonen of verbergen (instelling)
+   *  - "guess":   nog niet bekend, maar de titel is in een andere taal → voorlopig
+   *               verbergen (alleen als langPrefilter aan staat)
    * Geen verkoper bekend na FALLBACK_DELAY? Dan de artikelpagina als uitwijk.
-   * @returns {{s: string, c?: string, city?: string}}
+   * @returns {{s: string, c?: string, city?: string, lang?: string}}
    */
-  function statusFor(itemId, urgent) {
+  function statusFor(itemId, prio, lang) {
+    const st = lookupStatus(itemId, prio);
+    if (st.s === "pending" && settings.langPrefilter && isForeign(lang)) return { s: "guess", lang };
+    return st;
+  }
+
+  /** Status op basis van alleen de verkopersgegevens (zie statusFor). */
+  function lookupStatus(itemId, prio) {
     const rec = items.get(itemId);
     if (!rec) {
       if (failedItems.has(itemId)) return { s: "unknown" };
       const seen = firstSeen.get(itemId) || Date.now();
       if (!firstSeen.has(itemId)) firstSeen.set(itemId, seen);
-      if (Date.now() - seen > FALLBACK_DELAY) requestItemOwner(itemId, urgent);
+      if (Date.now() - seen > FALLBACK_DELAY) requestItemOwner(itemId, prio);
       else renderLater(FALLBACK_DELAY + 50);
       return { s: "pending" };
     }
     const u = users.get(rec.u);
     if (!u) {
       if (failedUsers.has(rec.u)) return { s: "unknown" };
-      requestUser(rec.u, urgent);
+      requestUser(rec.u, prio);
       return { s: "pending" };
     }
     if (u.c === "?") return { s: "unknown" };
@@ -383,16 +476,18 @@
     }
     let text = "…";
     if (st.s === "unknown") text = "?";
+    else if (st.s === "guess") text = `${st.lang.toUpperCase()}?`;
     else if (st.c) text = st.city && st.s === "in" ? `${st.c} · ${st.city}` : st.c;
     if (b.textContent !== text) b.textContent = text;
     b.dataset.state = st.s;
     b.title =
       st.s === "pending" ? "Land van verkoper wordt opgehaald…" :
       st.s === "unknown" ? "Land van verkoper onbekend" :
+      st.s === "guess" ? "Titel lijkt niet Nederlands/Engels; voorlopig verborgen tot het land van de verkoper bekend is" :
       `Verkoper uit ${st.c}${st.city ? " (" + st.city + ")" : ""}`;
   }
 
-  let counts = { in: 0, out: 0, pending: 0, unknown: 0 };
+  let counts = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0 };
 
   /**
    * Hoofdlus. Draait na elke DOM-wijziging, scroll of nieuw gegeven (via renderSoon).
@@ -411,7 +506,7 @@
     root.classList.toggle("vnbf-reveal", reveal);
     root.classList.toggle("vnbf-hide-unknown", !settings.showUnknown);
 
-    const c = { in: 0, out: 0, pending: 0, unknown: 0 };
+    const c = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0 };
     const vh = window.innerHeight || 800;
     const needed = new Set();
     syncContext();
@@ -422,13 +517,15 @@
     }
     for (const card of document.querySelectorAll(".vnbf-card")) cards.push([card, +card.dataset.vnbfItem]);
     for (const [card, id] of cards) {
-      let urgent = false;
+      let prio = 4;
+      const lang = settings.enabled ? langOf(id, card) : "";
       if (settings.enabled && !users.has(items.get(id)?.u)) {
         const r = card.getBoundingClientRect();
-        urgent = r.bottom > -300 && r.top < vh + 600; // in of vlak bij beeld
+        const visible = r.height > 0 && r.bottom > -300 && r.top < vh + 600; // in of vlak bij beeld
+        prio = priorityFor(lang, visible);
       }
-      const st = settings.enabled ? statusFor(id, urgent) : { s: "in" };
-      if (st.s === "pending") {
+      const st = settings.enabled ? statusFor(id, prio, lang) : { s: "in" };
+      if (st.s === "pending" || st.s === "guess") {
         const rec = items.get(id);
         needed.add(rec ? "u" + rec.u : "i" + id);
       }
@@ -697,7 +794,7 @@
       for (const it of list) {
         if (native.has(it.id) || fill.seen.has(it.id)) continue;
         fill.seen.add(it.id);
-        if (it.user && typeof it.user.id === "number") pairs.push([it.id, it.user.id]);
+        if (it.user && typeof it.user.id === "number") pairs.push([it.id, it.user.id, it.title || ""]);
         grid.appendChild(buildCard(it));
         added++;
       }
@@ -753,7 +850,7 @@
   let pill = null;
   /** Statuslabel linksonder maken/bijwerken: aan/uit, tellingen, 'toon'-knop. */
   function updatePill() {
-    const total = counts.in + counts.out + counts.pending + counts.unknown;
+    const total = counts.in + counts.out + counts.pending + counts.unknown + counts.guess;
     if (!settings.showPill || !document.body || total === 0) {
       if (pill) pill.hidden = true;
       return;
@@ -785,7 +882,8 @@
     if (settings.enabled) {
       const hiddenUnknown = settings.showUnknown ? 0 : counts.unknown;
       parts.push(`${counts.in + (settings.showUnknown ? counts.unknown : 0)} getoond`);
-      parts.push(`${counts.out + hiddenUnknown} ${settings.mode === "dim" ? "gedimd" : "verborgen"}`);
+      const hidden = counts.out + counts.guess + hiddenUnknown;
+      parts.push(`${hidden} ${settings.mode === "dim" ? "gedimd" : "verborgen"}${counts.guess ? ` (${counts.guess} voorlopig, op taal)` : ""}`);
       if (counts.pending) {
         const mins = Math.ceil(limiter.queue.length / RATE);
         parts.push(`${counts.pending} laden…${mins > 1 ? ` (~${mins} min)` : ""}`);
@@ -795,7 +893,7 @@
     }
     setText(pill.querySelector(".vnbf-pill__text"), parts.join(" · "));
     const rv = pill.querySelector(".vnbf-pill__reveal");
-    rv.hidden = !settings.enabled || settings.mode === "dim" || counts.out + (settings.showUnknown ? 0 : counts.unknown) === 0;
+    rv.hidden = !settings.enabled || settings.mode === "dim" || counts.out + counts.guess + (settings.showUnknown ? 0 : counts.unknown) === 0;
     setText(rv, reveal ? "verberg" : "toon");
   }
 
