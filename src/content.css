@@ -2,7 +2,7 @@
  *
  * content.js zet:
  *  - op <html>: vnbf-off (filter uit), vnbf-mode-dim, vnbf-reveal (tijdelijk tonen),
- *               vnbf-hide-unknown, vnbf-has-extra (er is aangevuld);
+ *               vnbf-hide-unknown, vnbf-hide-pending, vnbf-own (eigen resultatenlijst);
  *  - op elk rastervak: class vnbf-cell + data-vnbf="in|out|pending|unknown|guess"
  *    (guess = voorlopig verborgen op basis van de taal van de titel; pro = zakelijke verkoper).
  *  - vnbf-hide-pending op <html>: nog onbekende artikelen ook verbergen ("verschijnt als het bekend is").
@@ -102,21 +102,23 @@ html.vnbf-off .vnbf-badge { display: none; }
 .vnbf-pill__reveal[hidden] { display: none; }
 .vnbf-pill button:focus-visible { outline: 2px solid #007782; outline-offset: 2px; }
 
-/* Aangevulde artikelen van volgende pagina's.
- * VINTED-AFHANKELIJK: data-testid="catalog-pagination" is Vinted's eigen paginering;
- * die verbergen we als we zelf hebben aangevuld (anders krijg je dubbele artikelen). */
-html.vnbf-has-extra:not(.vnbf-off) [data-testid="catalog-pagination"] { display: none !important; }
+/* Eigen resultatenlijst.
+ * In die modus verbergen we Vinted's eigen raster (.vnbf-native, gezet door content.js)
+ * en Vinted's paginering; de eigen lijst (.vnbf-extra) neemt die plek in.
+ * VINTED-AFHANKELIJK: data-testid="catalog-pagination" is Vinted's eigen paginering. */
+html.vnbf-own:not(.vnbf-off) .vnbf-native,
+html.vnbf-own:not(.vnbf-off) [data-testid="catalog-pagination"] { display: none !important; }
 .vnbf-extra[hidden] { display: none; }
 .vnbf-extra { margin: 8px 0 24px; }
 .vnbf-extra__head {
-  margin: 8px 0 12px;
+  margin: 4px 0 14px;
   font: 600 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
   color: #6b6b68;
 }
 .vnbf-extra__head:empty { display: none; }
 .vnbf-extra__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--vnbf-col, 150px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 20px 12px;
 }
 .vnbf-card { display: flex; flex-direction: column; min-width: 0; }

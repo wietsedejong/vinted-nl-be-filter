@@ -26,7 +26,7 @@ Herken je jezelf niet in het lijstje hierboven? Dan is dit waarschijnlijk niets 
 
 - **Filtert op land van de verkoper.** Standaard NL en BE. Andere landen vink je aan in het menu.
 - **Verbergt of dimt** artikelen van buiten die landen.
-- **Vult de pagina aan.** Blijven er na het filteren te weinig artikelen over, dan haalt de extensie de volgende pagina('s) van dezelfde zoekopdracht op, met dezelfde filters. Die artikelen verschijnen onder de bestaande resultaten. Met **Meer laden** haal je er handmatig nog meer bij.
+- **Eigen resultatenlijst.** Vinted toont 96 artikelen per pagina, van alle landen door elkaar; na filteren blijven er soms maar een paar over. Daarom vervangt de extensie Vinted's raster door een eigen lijst die zichzelf vult: ze doorzoekt Vinted-pagina 1, 2, 3 … van dezelfde zoekopdracht (met alle filters) tot er 48 NL/BE-artikelen staan. Scroll je naar beneden of klik je **Meer laden**, dan zoekt ze verder.
 - **Snel voorfilteren op taal.** Opzoeken gaat in deze volgorde: eerst artikelen met een Nederlandse titel, dan Engelse of onduidelijke titels, en als laatste titels in een andere taal. Artikelen met een duidelijk Franse, Duitse, Spaanse enz. titel worden meteen voorlopig verborgen (label `FR?`), tot het land van de verkoper bekend is. Is de verkoper toch Belg of Nederlander, dan verschijnt het artikel alsnog. Dit staat aan; uitzetten kan in het menu.
 - **Verschijnt pas als het zeker is.** Artikelen waarvan het land nog niet bekend is, blijven verborgen en verschijnen zodra de verkoper is gecontroleerd. Artikelen met een onbekend land blijven weg. Beide is uit te zetten in het menu.
 - **Zakelijke verkopers (Vinted Pro) eruit.** Die herkent de extensie direct uit de zoekresultaten, dus zonder extra opzoekwerk.
@@ -71,8 +71,8 @@ Alles loopt via je eigen browsersessie op vinted.nl. Er gaan geen gegevens naar 
 ## Beperkingen
 
 - **Traag bij nieuwe verkopers.** Vinted staat ongeveer **30 profielopvragingen per minuut** toe. Daarboven volgt een `429` met `Retry-After: 60`. De extensie houdt het bij 24 per minuut, zodat je zelf normaal kunt blijven browsen. Een volle pagina met alleen onbekende verkopers duurt daardoor 3 à 4 minuten. Wat in beeld is, komt eerst aan de beurt. Door de cache gaat het steeds sneller.
-- **Automatisch aanvullen wacht.** Het begint pas als de huidige pagina helemaal bekend is, en stopt na 3 extra pagina's. Daarna klik je zelf op **Meer laden**.
-- **Aangevulde artikelen zijn eenvoudiger.** Het zijn eigen, kale kaarten. Favorieten en snelle acties werken daar niet; klik door naar het artikel.
+- **De eigen lijst zoekt met beleid.** Ze haalt pas een volgende Vinted-pagina op als de vorige grotendeels gecontroleerd is, en per stap hooguit 6 pagina's. Bij een zeldzame zoekopdracht klik je daarna zelf op **Meer laden**.
+- **Eenvoudigere kaarten.** De lijst bestaat uit eigen, kale kaarten. Favorieten en snelle acties werken daar niet; klik door naar het artikel. Wil je Vinted's eigen weergave terug, zet dan **Eigen resultatenlijst** uit in het menu.
 - **Alleen in de browser.** In de Vinted-app werkt dit niet. Op Android kan het wel met Firefox.
 
 ## Als het stuk is
@@ -91,7 +91,7 @@ Daar begin je. Per symptoom:
 | Labels blijven op `…` staan | Koppeling artikel → verkoper werkt niet meer | `parseInlineScripts()` en `page-hook.js` |
 | Alles wordt `?` | `/api/v2/users/<id>` is veranderd of geblokkeerd | `fetchUser()` |
 | Constant `429` in de console | Vinted heeft de limiet verlaagd | `RATE` in `content.js` |
-| **Meer laden** geeft niets | De Next.js-stroom is anders opgebouwd | `decodeFlight()` / `parseProductItems()` |
+| Eigen lijst blijft leeg / **Meer laden** geeft niets | De Next.js-stroom is anders opgebouwd | `decodeFlight()` / `parseProductItems()` |
 
 ## Bestanden
 

@@ -37,11 +37,12 @@
     hideBusiness: true, // zakelijke verkopers (Vinted Pro) verbergen
     badges: true,
     showPill: true,
-    autoFill: true,
+    ownList: true, // eigen resultatenlijst die zichzelf vult uit volgende Vinted-pagina's
     langPrefilter: true,
   };
-  const AUTOFILL_TARGET = 36; // aanvullen tot er minstens zoveel artikelen zichtbaar zijn
-  const AUTOFILL_MAX_PAGES = 3; // maximaal zoveel extra pagina's automatisch
+  const PAGE_SIZE = 48; // eigen lijst: zoveel NL/BE-artikelen per 'pagina' (daarna: Meer laden / scrollen)
+  const MAX_PAGES_PER_STEP = 6; // per stap hooguit zoveel Vinted-pagina's ophalen (zeldzame zoekopdrachten)
+  const BACKLOG_LIMIT = 12; // pas een nieuwe Vinted-pagina halen als er minder NL/EN-titels op controle wachten
   const USER_TTL = 60 * 864e5; // 60 dagen
   const ITEM_TTL = 30 * 864e5; // 30 dagen
   const MAX_ENTRIES = 30000; // max. items per cache (≈1 MB in browser.storage.local)
@@ -79,7 +80,8 @@
     try {
       const { vnbfUsers = {}, vnbfItems = {} } = await api.storage.local.get(["vnbfUsers", "vnbfItems"]);
       const now = Date.now();
-      for (const [k, v] of Object.entries(vnbfUsers)) if (now - v.t < USER_TTL) users.set(+k, v);
+      // Records zonder 'b' (zakelijk) komen uit een oudere versie: opnieuw opzoeken.
+      for (const [k, v] of Object.entries(vnbfUsers)) if (now - v.t < USER_TTL && "b" in v) users.set(+k, v);
       for (const [k, v] of Object.entries(vnbfItems)) if (now - v.t < ITEM_TTL && !items.has(+k)) items.set(+k, v);
     } catch (_) {}
   }
@@ -299,33 +301,28 @@
   });
 
   // Server-gerenderde zoekresultaten (Next.js / React Server Components)
-  const parsedScripts = new WeakSet();
+  let inlineCount = 0;
   /**
    * Leest de server-gerenderde zoekresultaten uit de <script>-tags van de pagina.
-   * VINTED-AFHANKELIJK: Next.js zet data in `self.__next_f.push([...])`, met per
-   * artikel `"productItem":{"id":…, …, "user":{"id":…}}` (aanhalingstekens ge-escaped).
-   * We knippen op "productItem" en zoeken binnen elk stuk het eerste user-ID.
+   * Alle stukken worden eerst aan elkaar geplakt en gedecodeerd (een artikel kan over
+   * twee stukken verdeeld zijn), daarna worden de artikelobjecten eruit gehaald.
+   * VINTED-AFHANKELIJK: Next.js zet data in `self.__next_f.push([1,"…"])`, met per
+   * artikel `"productItem":{"id":…,"title":…,"user":{"id":…,"isBusiness":…}}`.
    */
   function parseInlineScripts() {
-    for (const s of document.scripts) {
-      if (parsedScripts.has(s)) continue;
-      const txt = s.textContent;
-      if (!txt) continue; // nog aan het laden; later opnieuw proberen
-      parsedScripts.add(s);
-      if (!txt.startsWith("self.__next_f") || txt.indexOf("productItem") === -1) continue;
-      const t = txt.replace(/\\"/g, '"');
-      const parts = t.split('"productItem":{"id":');
-      const pairs = [];
-      for (let i = 1; i < parts.length; i++) {
-        const id = parseInt(parts[i], 10);
-        const m = parts[i].match(/"user":\{"id":(\d+)/);
-        const tt = parts[i].match(/"title":"([^"]{1,300})"/);
-        // VINTED-AFHANKELIJK: "user":{"id":…,…,"isBusiness":true|false}
-        const bz = parts[i].match(/"user":\{"id":\d+[^}]*?"isBusiness":(true|false)/);
-        if (id && m) pairs.push([id, +m[1], tt ? tt[1] : "", bz ? bz[1] === "true" : undefined]);
-      }
-      addPairs(pairs);
-    }
+    const scripts = [...document.scripts].filter((s) => s.textContent.startsWith("self.__next_f"));
+    if (scripts.length === inlineCount) return; // niets nieuws
+    inlineCount = scripts.length;
+    const flight = decodeFlight(scripts.map((s) => s.textContent).join("\n"));
+    addPairs(parseProductItems(flight).map(pairOf).filter(Boolean));
+  }
+
+  /** Artikelobject → [itemId, userId, titel, zakelijk] voor addPairs. */
+  function pairOf(it) {
+    if (!it || !it.user || typeof it.user.id !== "number") return null;
+    const biz = typeof it.user.isBusiness === "boolean" ? it.user.isBusiness
+      : typeof it.user.business === "boolean" ? it.user.business : undefined;
+    return [it.id, it.user.id, it.title || "", biz];
   }
 
   // ---------- taal van de titel ----------
@@ -519,14 +516,23 @@
     root.classList.toggle("vnbf-reveal", reveal);
     root.classList.toggle("vnbf-hide-unknown", !settings.showUnknown);
     root.classList.toggle("vnbf-hide-pending", settings.hidePending);
+    const own = ownActive();
+    root.classList.toggle("vnbf-own", own);
+    const grid = nativeGrid();
+    if (grid) grid.classList.add("vnbf-native");
 
     const c = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0, pro: 0 };
     const needed = new Set();
+    let backlog = 0; // NL/EN-titels die nog op controle wachten
     syncContext();
     const cards = [];
-    for (const card of document.querySelectorAll('[data-testid^="product-item-id-"]')) {
-      const m = CARD_RE.exec(card.getAttribute("data-testid"));
-      if (m) cards.push([card, +m[1]]);
+    // In de eigen lijst zijn Vinted's eigen kaarten verborgen: die slaan we over,
+    // zodat er geen verzoeken aan worden besteed.
+    if (!own) {
+      for (const card of document.querySelectorAll('[data-testid^="product-item-id-"]')) {
+        const m = CARD_RE.exec(card.getAttribute("data-testid"));
+        if (m) cards.push([card, +m[1]]);
+      }
     }
     for (const card of document.querySelectorAll(".vnbf-card")) cards.push([card, +card.dataset.vnbfItem]);
     for (const [card, id] of cards) {
@@ -536,6 +542,7 @@
       if (st.s === "pending" || st.s === "guess") {
         const rec = items.get(id);
         needed.add(rec ? "u" + rec.u : "i" + id);
+        if (prio < 2) backlog++;
       }
       const cell = cellFor(card);
       if (cell.dataset.vnbf !== st.s) cell.dataset.vnbf = st.s;
@@ -545,8 +552,9 @@
     }
     if (settings.enabled) dropUnneeded(needed);
     counts = c;
+    fill.backlog = backlog;
     updatePill();
-    maybeAutoFill();
+    maybeFill();
   }
 
   let laterTimer = null;
@@ -569,25 +577,34 @@
     requestAnimationFrame(() => { renderQueued = false; render(); });
   }
 
-  // ---------- pagina aanvullen ----------
-  // Als er na het filteren te weinig artikelen overblijven, halen we de
-  // volgende pagina('s) van dezelfde zoekopdracht op en tonen we de artikelen
-  // onder de bestaande resultaten. We gebruiken daarvoor Vinted's eigen
-  // pagina-URL, zodat alle filters (merk, maat, prijs, sortering) meegaan.
-  // ctx: zoekopdracht waar dit bij hoort · startPage/lastPage: eerste/laatst geladen pagina
-  // autoPages: hoeveel automatisch geladen · seen: itemIds al in het blok · el: het blok zelf
-  const fill = { ctx: "", startPage: 1, lastPage: 1, autoPages: 0, loading: false, ended: false, error: "", el: null, seen: new Set() };
+  // ---------- eigen resultatenlijst ----------
+  // Vinted toont 96 artikelen per pagina, van alle landen door elkaar. Na filteren
+  // blijven er soms maar een paar over per pagina. Daarom verbergen we Vinted's raster
+  // en bouwen we een eigen lijst: we halen Vinted-pagina 1, 2, 3 … van dezelfde
+  // zoekopdracht op (via Vinted's eigen pagina-URL, dus met alle filters), en tonen
+  // alleen artikelen van verkopers uit de gekozen landen. Is de lijst vol
+  // (PAGE_SIZE), dan stopt het; scrollen naar beneden of 'Meer laden' haalt meer.
+  //
+  // fill.ctx: zoekopdracht waar dit bij hoort · startPage: eerste Vinted-pagina
+  // nextPage: volgende op te halen pagina · target: gewenst aantal zichtbare artikelen
+  // stepPages: pagina's opgehaald sinds target laatst omhoog ging · backlog: NL/EN in controle
+  const fill = {
+    ctx: "", startPage: 1, nextPage: 1, target: PAGE_SIZE, stepPages: 0, backlog: 0,
+    loading: false, ended: false, error: "", el: null, seen: new Set(), observer: null,
+  };
 
   const isCatalog = () => location.pathname.startsWith("/catalog");
+  /** Eigen lijst actief? Alleen bij 'verbergen', op een zoekpagina, en als de instelling aan staat. */
+  const ownActive = () => settings.enabled && settings.mode === "hide" && settings.ownList && isCatalog();
 
-  /** Sleutel voor de huidige zoekopdracht (URL zonder `time`). Verandert die, dan begint aanvullen opnieuw. */
+  /** Sleutel voor de huidige zoekopdracht (URL zonder `time`). Verandert die, dan begint de lijst opnieuw. */
   function contextKey() {
     const u = new URL(location.href);
     u.searchParams.delete("time");
     return u.pathname + "?" + u.searchParams.toString();
   }
 
-  /** URL van pagina n van de huidige zoekopdracht, met alle filters behouden. */
+  /** URL van Vinted-pagina n van de huidige zoekopdracht, met alle filters behouden. */
   function pageUrl(n) {
     const u = new URL(location.href);
     u.searchParams.delete("time");
@@ -595,14 +612,17 @@
     return u.pathname + u.search;
   }
 
-  /** Na navigatie naar een andere zoekopdracht/pagina: aangevulde blok weghalen en status resetten. */
+  /** Na navigatie naar een andere zoekopdracht: eigen lijst weghalen en opnieuw beginnen. */
   function syncContext() {
     const key = contextKey();
     if (key === fill.ctx) return;
     if (fill.el) fill.el.remove();
+    if (fill.observer) fill.observer.disconnect();
     const page = parseInt(new URL(location.href).searchParams.get("page") || "1", 10) || 1;
-    Object.assign(fill, { ctx: key, startPage: page, lastPage: page, autoPages: 0, loading: false, ended: false, error: "", el: null, seen: new Set() });
-    document.documentElement.classList.remove("vnbf-has-extra");
+    Object.assign(fill, {
+      ctx: key, startPage: page, nextPage: page, target: PAGE_SIZE, stepPages: 0, backlog: 0,
+      loading: false, ended: false, error: "", el: null, seen: new Set(), observer: null,
+    });
   }
 
   // React Server Components-stroom uit een opgehaalde HTML-pagina halen
@@ -706,74 +726,83 @@
     return card;
   }
 
-  /** Vinted's eigen raster met zoekresultaten (ouder van de rastervakken), of null. */
+  /**
+   * Vinted's eigen raster met zoekresultaten (ouder van de rastervakken), of null.
+   * VINTED-AFHANKELIJK: data-testid="grid-item" / class *feed-grid__item*.
+   */
   function nativeGrid() {
     const first = document.querySelector('[data-testid^="product-item-id-"]');
     const item = first && (first.closest('[data-testid="grid-item"]') || first.closest('[class*="feed-grid__item"]'));
     return item ? item.parentElement : null;
   }
 
-  /** Kolombreedte van Vinted's eigen raster overnemen, zodat aangevulde kaarten even breed zijn. */
-  function matchColumns() {
-    if (!fill.el) return;
-    // Smalste zichtbare artikelkaart = één kolom (banners zijn breder)
-    let min = Infinity;
-    for (const card of document.querySelectorAll('[data-testid^="product-item-id-"]')) {
-      if (!CARD_RE.test(card.getAttribute("data-testid"))) continue;
-      const w = card.getBoundingClientRect().width;
-      if (w > 60 && w < min) min = w;
-    }
-    if (min < Infinity) fill.el.style.setProperty("--vnbf-col", `${Math.floor(min) - 2}px`);
-  }
-
-  /** Maakt het blok voor aangevulde artikelen direct onder Vinted's raster (één keer). */
+  /** Maakt de eigen lijst, direct op de plek van Vinted's raster (één keer per zoekopdracht). */
   function ensureBlock() {
-    if (fill.el && fill.el.isConnected) { matchColumns(); return fill.el; }
+    if (fill.el && fill.el.isConnected) return fill.el;
     const grid = nativeGrid();
     if (!grid) return null;
     const sec = el("section", "vnbf-extra");
     sec.append(el("div", "vnbf-extra__head"), el("div", "vnbf-extra__grid"), el("div", "vnbf-extra__foot"));
     grid.insertAdjacentElement("afterend", sec);
     fill.el = sec;
-    matchColumns();
+    // Bijna onderaan gescrold? Dan de lijst verder vullen (oneindig scrollen).
+    fill.observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) moreWanted();
+    }, { rootMargin: "600px" });
+    fill.observer.observe(sec.querySelector(".vnbf-extra__foot"));
     return sec;
   }
 
-  /** Kop en voet van het aangevulde blok bijwerken: 'Meer laden', 'Ga naar pagina N', status. */
+  /** Aantal artikelen dat in de eigen lijst echt zichtbaar is. */
+  function visibleOwn() {
+    return counts.in + (settings.showUnknown ? counts.unknown : 0);
+  }
+
+  /** Gebruiker wil meer zien (scrollen of knop): doel ophogen als het huidige doel gehaald is. */
+  function moreWanted() {
+    if (fill.ended || !ownActive()) return;
+    if (visibleOwn() >= fill.target - 4 || fill.stepPages >= MAX_PAGES_PER_STEP) {
+      fill.target = visibleOwn() + PAGE_SIZE;
+      fill.stepPages = 0;
+      maybeFill();
+    }
+  }
+
+  /** Kop en voet van de eigen lijst bijwerken: telling, status, 'Meer laden'. */
   function updateBlock() {
     const sec = fill.el;
     if (!sec) return;
     const label = settings.countries.join("/") || "gekozen landen";
-    const head = sec.querySelector(".vnbf-extra__head");
-    const range = fill.lastPage > fill.startPage + 1 ? `pagina ${fill.startPage + 1}–${fill.lastPage}` : `pagina ${fill.startPage + 1}`;
-    setText(head, fill.lastPage > fill.startPage ? `Aangevuld uit ${range} · alleen ${label}` : "");
+    const last = fill.nextPage - 1;
+    const range = last < fill.startPage ? "" : last > fill.startPage ? ` · Vinted-pagina ${fill.startPage}–${last} doorzocht` : ` · Vinted-pagina ${fill.startPage} doorzocht`;
+    const busy = fill.backlog + counts.guess > 0 ? " · zoekt nog…" : "";
+    setText(sec.querySelector(".vnbf-extra__head"),
+      fill.nextPage === fill.startPage && fill.loading ? `Zoeken naar artikelen uit ${label}…` : `${visibleOwn()} artikelen van verkopers uit ${label}${range}${busy}`);
     const foot = sec.querySelector(".vnbf-extra__foot");
+    const key = [fill.loading, fill.ended, fill.error, fill.nextPage].join("|");
+    if (foot.dataset.key === key) return; // niets veranderd
+    foot.dataset.key = key;
     foot.textContent = "";
-    if (fill.startPage > 1) {
-      const prev = el("a", "vnbf-extra__link", "← Vorige pagina");
-      prev.href = pageUrl(fill.startPage - 1);
-      foot.append(prev);
-    }
-    if (fill.loading) foot.append(el("span", "vnbf-extra__status", `Pagina ${fill.lastPage + 1} laden…`));
+    if (fill.loading) foot.append(el("span", "vnbf-extra__status", `Vinted-pagina ${fill.nextPage} doorzoeken…`));
     else if (fill.error) foot.append(el("span", "vnbf-extra__status", fill.error));
-    if (!fill.ended) {
-      const more = el("button", "vnbf-extra__more", `Meer laden (pagina ${fill.lastPage + 1})`);
+    if (fill.ended) {
+      foot.append(el("span", "vnbf-extra__status", "Einde van de zoekresultaten."));
+    } else {
+      const more = el("button", "vnbf-extra__more", "Meer laden");
       more.type = "button";
       more.disabled = fill.loading;
-      more.addEventListener("click", () => loadNextPage());
-      const next = el("a", "vnbf-extra__link", `Ga naar pagina ${fill.lastPage + 1} →`);
-      next.href = pageUrl(fill.lastPage + 1);
-      foot.append(more, next);
-    } else {
-      foot.append(el("span", "vnbf-extra__status", "Geen verdere resultaten."));
+      more.addEventListener("click", () => {
+        fill.target = Math.max(fill.target, visibleOwn()) + PAGE_SIZE;
+        fill.stepPages = 0;
+        maybeFill();
+      });
+      foot.append(more);
     }
-    document.documentElement.classList.toggle("vnbf-has-extra", fill.lastPage > fill.startPage);
   }
 
   /**
-   * Haalt de volgende pagina van de huidige zoekopdracht op en voegt de artikelen toe.
-   * Werkt via Vinted's eigen pagina-URL (?page=N), zodat alle filters meegaan.
-   * Artikelen die al op het scherm staan worden overgeslagen (Vinted-pagina's overlappen).
+   * Haalt de volgende Vinted-pagina van de huidige zoekopdracht op en zet de artikelen
+   * (verborgen) in de eigen lijst. Ze verschijnen zodra het land bekend is.
    * Navigeer je ondertussen weg, dan wordt het resultaat weggegooid (ctx-controle).
    */
   async function loadNextPage() {
@@ -781,7 +810,7 @@
     const sec = ensureBlock();
     if (!sec) return;
     const ctx = fill.ctx;
-    const page = fill.lastPage + 1;
+    const page = fill.nextPage;
     fill.loading = true;
     fill.error = "";
     updateBlock();
@@ -790,30 +819,20 @@
       if (!res.ok) throw new Error(String(res.status));
       const list = parseProductItems(decodeFlight(await res.text()));
       if (ctx !== fill.ctx) return; // intussen naar een andere zoekopdracht gegaan
-      const native = new Set(
-        [...document.querySelectorAll('[data-testid^="product-item-id-"]')]
-          .map((c) => CARD_RE.exec(c.getAttribute("data-testid")))
-          .filter(Boolean)
-          .map((m) => +m[1])
-      );
-      const pairs = [];
       const grid = sec.querySelector(".vnbf-extra__grid");
       let added = 0;
       for (const it of list) {
-        if (native.has(it.id) || fill.seen.has(it.id)) continue;
+        if (fill.seen.has(it.id)) continue; // Vinted-pagina's overlappen soms
         fill.seen.add(it.id);
-        if (it.user && typeof it.user.id === "number") {
-          const biz = typeof it.user.isBusiness === "boolean" ? it.user.isBusiness : undefined;
-          pairs.push([it.id, it.user.id, it.title || "", biz]);
-        }
         grid.appendChild(buildCard(it));
         added++;
       }
-      addPairs(pairs);
-      fill.lastPage = page;
-      if (!list.length) fill.ended = true;
+      addPairs(list.map(pairOf).filter(Boolean));
+      fill.nextPage = page + 1;
+      fill.stepPages++;
+      if (!list.length || !added) fill.ended = true;
     } catch (e) {
-      if (ctx === fill.ctx) fill.error = "Laden mislukt — probeer het later opnieuw.";
+      if (ctx === fill.ctx) fill.error = "Laden mislukt, probeer het later opnieuw.";
     } finally {
       if (ctx === fill.ctx) {
         fill.loading = false;
@@ -824,37 +843,28 @@
   }
 
   /**
-   * Na elke render: moet er automatisch aangevuld worden? Alleen als
-   *  - filter aan, modus 'verbergen' en we op een /catalog-pagina zitten;
-   *  - alle artikelen bekend zijn (geen 'pending'), anders tellen we verkeerd;
-   *  - er minder dan AUTOFILL_TARGET zichtbaar zijn en we nog geen AUTOFILL_MAX_PAGES deden.
-   * Het blok met 'Meer laden' verschijnt zodra er iets verborgen is.
+   * Na elke render: moet de eigen lijst verder gevuld worden? Ja als
+   *  - de eigen lijst actief is;
+   *  - er minder dan `target` artikelen zichtbaar zijn;
+   *  - er niet te veel NL/EN-titels op controle wachten (anders eerst die afmaken);
+   *  - we in deze stap nog geen MAX_PAGES_PER_STEP pagina's hebben opgehaald.
    */
-  function maybeAutoFill() {
+  function maybeFill() {
     if (fill.el && !fill.el.isConnected) fill.el = null;
-    const active = settings.enabled && settings.mode === "hide" && isCatalog();
-    if (!active) {
+    if (!ownActive()) {
       if (fill.el) fill.el.hidden = true;
-      document.documentElement.classList.remove("vnbf-has-extra");
       return;
     }
-    if (fill.el) {
-      fill.el.hidden = false;
-      document.documentElement.classList.toggle("vnbf-has-extra", fill.lastPage > fill.startPage);
-    }
-    const visible = counts.in + (settings.showUnknown ? counts.unknown : 0);
-    const total = visible + counts.out + counts.pending + counts.guess + counts.pro;
-    if (!total || fill.loading || fill.ended) return;
-    if (!fill.el && counts.out > 0 && ensureBlock()) updateBlock(); // knop 'Meer laden' zodra er iets verborgen is
-    if (
-      settings.autoFill &&
-      counts.pending === 0 &&
-      visible < AUTOFILL_TARGET &&
-      fill.autoPages < AUTOFILL_MAX_PAGES
-    ) {
-      fill.autoPages++;
-      loadNextPage();
-    }
+    if (!nativeGrid() && !fill.el) return; // nog geen zoekresultaten op de pagina
+    const sec = ensureBlock();
+    if (!sec) return;
+    sec.hidden = false;
+    updateBlock();
+    if (fill.loading || fill.ended || fill.error) return;
+    if (visibleOwn() >= fill.target) return;
+    if (fill.backlog >= BACKLOG_LIMIT) return;
+    if (fill.stepPages >= MAX_PAGES_PER_STEP) return;
+    loadNextPage();
   }
 
   // ---------- statuslabel ----------

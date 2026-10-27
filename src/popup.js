@@ -13,7 +13,7 @@ const DEFAULTS = {
   hideBusiness: true,
   badges: true,
   showPill: true,
-  autoFill: true,
+  ownList: true,
   langPrefilter: true,
 };
 
@@ -37,7 +37,7 @@ async function init() {
   $("#showUnknown").checked = s.showUnknown;
   $("#badges").checked = s.badges;
   $("#showPill").checked = s.showPill;
-  $("#autoFill").checked = s.autoFill;
+  $("#ownList").checked = s.ownList;
   $("#langPrefilter").checked = s.langPrefilter;
   $("#hidePending").checked = s.hidePending;
   $("#hideBusiness").checked = s.hideBusiness;
@@ -58,7 +58,7 @@ async function init() {
     box.appendChild(label);
   }
 
-  for (const id of ["enabled", "showUnknown", "badges", "showPill", "autoFill", "langPrefilter", "hidePending", "hideBusiness"]) {
+  for (const id of ["enabled", "showUnknown", "badges", "showPill", "ownList", "langPrefilter", "hidePending", "hideBusiness"]) {
     $("#" + id).addEventListener("change", (e) => api.storage.sync.set({ [id]: e.target.checked }));
   }
   for (const r of document.querySelectorAll('input[name="mode"]')) {
