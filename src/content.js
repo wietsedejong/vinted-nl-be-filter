@@ -39,6 +39,7 @@
     showPill: true,
     ownList: true, // eigen resultatenlijst die zichzelf vult uit volgende Vinted-pagina's
     langPrefilter: true,
+    newTab: true, // artikelen uit de eigen lijst openen in een nieuw tabblad
   };
   const PAGE_SIZE = 48; // eigen lijst: zoveel NL/BE-artikelen per 'pagina' (daarna: Meer laden / scrollen)
   const MAX_PAGES_PER_STEP = 6; // per stap hooguit zoveel Vinted-pagina's ophalen (zeldzame zoekopdrachten)
@@ -591,6 +592,7 @@
   const fill = {
     ctx: "", startPage: 1, nextPage: 1, target: PAGE_SIZE, stepPages: 0, backlog: 0,
     loading: false, ended: false, error: "", el: null, seen: new Set(), observer: null,
+    list: [], restored: false, triedRestore: false, // list: lichte kopie van de artikelen (voor onthouden)
   };
 
   const isCatalog = () => location.pathname.startsWith("/catalog");
@@ -612,16 +614,97 @@
     return u.pathname + u.search;
   }
 
-  /** Na navigatie naar een andere zoekopdracht: eigen lijst weghalen en opnieuw beginnen. */
+  // ---- lijst onthouden (per zoekopdracht) ----
+  // Klik je door naar een artikel en kom je terug, of wissel je van sortering en weer
+  // terug, dan zetten we de lijst, de scrollpositie en de voortgang meteen terug in
+  // plaats van opnieuw te beginnen. Opgeslagen in sessionStorage: per tabblad, en weg
+  // als je het tabblad sluit. We bewaren de laatste SNAP_MAX zoekopdrachten.
+  const SNAP_KEY = "vnbf:lists";
+  const SNAP_MAX = 6; // zoveel zoekopdrachten (bijv. verschillende sorteringen) onthouden
+  const SNAP_ITEMS = 800; // max. artikelen per zoekopdracht
+  const SNAP_TTL = 3 * 3600e3; // 3 uur
+  const restoreScroll = (() => {
+    try { return performance.getEntriesByType("navigation")[0]?.type === "back_forward"; } catch (_) { return false; }
+  })();
+  let pendingScroll = null; // scrollpositie die we na het terugzetten nog moeten toepassen
+
+  function readSnaps() {
+    try { return JSON.parse(sessionStorage.getItem(SNAP_KEY) || "{}"); } catch (_) { return {}; }
+  }
+
+  /** Alleen wat nodig is om een kaart te tekenen en te filteren. */
+  function lightItem(it) {
+    const box = it.itemBox || {};
+    return {
+      id: it.id, url: it.url, title: it.title,
+      thumbnailUrl: it.thumbnailUrl || (it.thumbnailUrls && it.thumbnailUrls[0]) || "",
+      price: it.price, totalItemPrice: it.totalItemPrice,
+      itemBox: { firstLine: box.firstLine, secondLine: box.secondLine },
+      user: it.user ? { id: it.user.id, isBusiness: it.user.isBusiness ?? it.user.business } : null,
+    };
+  }
+
+  /** Huidige lijst + voortgang + scrollpositie wegschrijven. */
+  function saveSnapshot() {
+    if (!fill.ctx || !fill.list || !fill.list.length) return;
+    try {
+      const snaps = readSnaps();
+      snaps[fill.ctx] = {
+        t: Date.now(), startPage: fill.startPage, nextPage: fill.nextPage, target: fill.target,
+        ended: fill.ended, items: fill.list.slice(0, SNAP_ITEMS),
+      };
+      // Oudste weggooien
+      const keys = Object.keys(snaps).sort((a, b) => snaps[b].t - snaps[a].t);
+      for (const k of keys.slice(SNAP_MAX)) delete snaps[k];
+      sessionStorage.setItem(SNAP_KEY, JSON.stringify(snaps));
+    } catch (_) { /* opslag vol of geblokkeerd: dan maar opnieuw zoeken */ }
+  }
+
+  /** Alleen de scrollpositie bewaren (goedkoop, kan vaak). */
+  function saveScroll() {
+    if (!fill.ctx) return;
+    try {
+      const pos = JSON.parse(sessionStorage.getItem(SNAP_KEY + ":scroll") || "{}");
+      pos[fill.ctx] = window.scrollY;
+      sessionStorage.setItem(SNAP_KEY + ":scroll", JSON.stringify(pos));
+    } catch (_) {}
+  }
+
+  function readScroll(ctx) {
+    try { return JSON.parse(sessionStorage.getItem(SNAP_KEY + ":scroll") || "{}")[ctx]; } catch (_) { return undefined; }
+  }
+
+  /** Lijst van een eerder bezochte zoekopdracht terugzetten. Geeft true als dat lukte. */
+  function restoreSnapshot() {
+    const snap = readSnaps()[fill.ctx];
+    if (!snap || Date.now() - snap.t > SNAP_TTL || !snap.items || !snap.items.length) return false;
+    const sec = ensureBlock();
+    if (!sec) return false;
+    const grid = sec.querySelector(".vnbf-extra__grid");
+    for (const it of snap.items) {
+      if (fill.seen.has(it.id)) continue;
+      fill.seen.add(it.id);
+      fill.list.push(it);
+      grid.appendChild(buildCard(it));
+    }
+    addPairs(snap.items.map(pairOf).filter(Boolean));
+    Object.assign(fill, { nextPage: snap.nextPage, target: snap.target, ended: snap.ended, restored: true });
+    if (restoreScroll) pendingScroll = readScroll(fill.ctx) ?? null;
+    return true;
+  }
+
+  /** Na navigatie naar een andere zoekopdracht: eigen lijst weghalen en opnieuw beginnen (of terugzetten). */
   function syncContext() {
     const key = contextKey();
     if (key === fill.ctx) return;
+    if (fill.ctx) saveSnapshot(); // vorige zoekopdracht (bijv. andere sortering) onthouden
     if (fill.el) fill.el.remove();
     if (fill.observer) fill.observer.disconnect();
     const page = parseInt(new URL(location.href).searchParams.get("page") || "1", 10) || 1;
     Object.assign(fill, {
       ctx: key, startPage: page, nextPage: page, target: PAGE_SIZE, stepPages: 0, backlog: 0,
       loading: false, ended: false, error: "", el: null, seen: new Set(), observer: null,
+      list: [], restored: false, triedRestore: false,
     });
   }
 
@@ -707,6 +790,7 @@
     card.dataset.vnbfItem = String(it.id);
     const a = el("a", "vnbf-card__img");
     a.href = it.url || `/items/${it.id}`;
+    if (settings.newTab) { a.target = "_blank"; a.rel = "noopener"; }
     const img = document.createElement("img");
     img.loading = "lazy";
     img.alt = it.title || "";
@@ -716,6 +800,7 @@
     card.appendChild(a);
     const body = el("a", "vnbf-card__body");
     body.href = a.href;
+    if (settings.newTab) { body.target = "_blank"; body.rel = "noopener"; }
     const box = it.itemBox || {};
     const first = typeof box.firstLine === "string" && box.firstLine !== "$undefined" ? box.firstLine : it.title;
     body.append(el("div", "vnbf-card__brand", first || ""));
@@ -824,12 +909,15 @@
       for (const it of list) {
         if (fill.seen.has(it.id)) continue; // Vinted-pagina's overlappen soms
         fill.seen.add(it.id);
-        grid.appendChild(buildCard(it));
+        const light = lightItem(it);
+        fill.list.push(light);
+        grid.appendChild(buildCard(light));
         added++;
       }
       addPairs(list.map(pairOf).filter(Boolean));
       fill.nextPage = page + 1;
       fill.stepPages++;
+      saveSnapshot();
       if (!list.length || !added) fill.ended = true;
     } catch (e) {
       if (ctx === fill.ctx) fill.error = "Laden mislukt, probeer het later opnieuw.";
@@ -856,10 +944,17 @@
       return;
     }
     if (!nativeGrid() && !fill.el) return; // nog geen zoekresultaten op de pagina
+    if (!fill.triedRestore) { fill.triedRestore = true; restoreSnapshot(); }
     const sec = ensureBlock();
     if (!sec) return;
     sec.hidden = false;
     updateBlock();
+    if (pendingScroll != null && fill.list.length) {
+      // Na terugkomen: naar de plek waar je was (na het tekenen van de kaarten)
+      const y = pendingScroll;
+      pendingScroll = null;
+      requestAnimationFrame(() => window.scrollTo(0, y));
+    }
     if (fill.loading || fill.ended || fill.error) return;
     if (visibleOwn() >= fill.target) return;
     if (fill.backlog >= BACKLOG_LIMIT) return;
@@ -964,5 +1059,19 @@
       scrollTimer = setTimeout(() => { scrollTimer = null; renderSoon(); }, 300);
     }, { passive: true });
     window.addEventListener("load", renderSoon);
+    // Bij wegklikken: lijst + scrollpositie bewaren en de verkoperscache meteen wegschrijven.
+    window.addEventListener("pagehide", () => {
+      saveSnapshot();
+      saveScroll();
+      if (hasStorage) {
+        try { api.storage.local.set({ vnbfUsers: Object.fromEntries(users), vnbfItems: Object.fromEntries(items) }); } catch (_) {}
+      }
+    });
+    // Ook periodiek tijdens scrollen de positie bijwerken (pagehide wordt niet altijd gehaald)
+    let scrollSave = null;
+    window.addEventListener("scroll", () => {
+      if (scrollSave) return;
+      scrollSave = setTimeout(() => { scrollSave = null; saveScroll(); }, 500);
+    }, { passive: true });
   })();
 })();
