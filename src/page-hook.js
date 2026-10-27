@@ -30,7 +30,8 @@
       u && typeof u === "object" && typeof u.id === "number" &&
       ("title" in node || "url" in node)
     ) {
-      pairs.push([node.id, u.id, typeof node.title === "string" ? node.title : ""]);
+      const biz = typeof u.business === "boolean" ? u.business : typeof u.isBusiness === "boolean" ? u.isBusiness : undefined;
+      pairs.push([node.id, u.id, typeof node.title === "string" ? node.title : "", biz]);
     }
     for (const k in node) {
       const v = node[k];
@@ -48,7 +49,8 @@
       const id = parseInt(parts[i], 10);
       const m = parts[i].match(/"user":\{"id":(\d+)/);
       const tt = parts[i].match(/"title":"([^"]{1,300})"/);
-      if (id && m) pairs.push([id, parseInt(m[1], 10), tt ? tt[1] : ""]);
+      const bz = parts[i].match(/"user":\{"id":\d+[^}]*?"isBusiness":(true|false)/);
+      if (id && m) pairs.push([id, parseInt(m[1], 10), tt ? tt[1] : "", bz ? bz[1] === "true" : undefined]);
     }
     return pairs;
   }

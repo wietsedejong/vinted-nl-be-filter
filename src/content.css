@@ -4,13 +4,16 @@
  *  - op <html>: vnbf-off (filter uit), vnbf-mode-dim, vnbf-reveal (tijdelijk tonen),
  *               vnbf-hide-unknown, vnbf-has-extra (er is aangevuld);
  *  - op elk rastervak: class vnbf-cell + data-vnbf="in|out|pending|unknown|guess"
- *    (guess = voorlopig verborgen op basis van de taal van de titel).
+ *    (guess = voorlopig verborgen op basis van de taal van de titel; pro = zakelijke verkoper).
+ *  - vnbf-hide-pending op <html>: nog onbekende artikelen ook verbergen ("verschijnt als het bekend is").
  * Het verbergen/dimmen gebeurt dus volledig hier, op basis van die klassen.
  */
 
 /* Verbergen (standaard) */
 html:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="out"],
 html:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="guess"],
+html:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="pro"],
+html.vnbf-hide-pending:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="pending"],
 html.vnbf-hide-unknown:not(.vnbf-off):not(.vnbf-mode-dim):not(.vnbf-reveal) .vnbf-cell[data-vnbf="unknown"] {
   display: none !important;
 }
@@ -20,6 +23,8 @@ html:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="out"],
 html:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="out"],
 html:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="guess"],
 html:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="guess"],
+html:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="pro"],
+html:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="pro"],
 html.vnbf-hide-unknown:not(.vnbf-off).vnbf-mode-dim .vnbf-cell[data-vnbf="unknown"],
 html.vnbf-hide-unknown:not(.vnbf-off).vnbf-reveal .vnbf-cell[data-vnbf="unknown"] {
   opacity: 0.28;
@@ -60,6 +65,10 @@ html:not(.vnbf-off) .vnbf-cell[data-vnbf="pending"] {
 .vnbf-badge[data-state="unknown"] { background: rgba(160, 110, 0, 0.9); }
 .vnbf-badge[data-state="pending"] { background: rgba(20, 20, 20, 0.45); }
 .vnbf-badge[data-state="guess"] { background: rgba(120, 120, 120, 0.6); }
+.vnbf-badge[data-state="pro"] { background: rgba(90, 60, 140, 0.9); }
+/* Even zichtbaar maken dat een artikel net is binnengekomen */
+@keyframes vnbf-pop { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
+html.vnbf-hide-pending:not(.vnbf-off) .vnbf-cell[data-vnbf="in"] { animation: vnbf-pop 0.25s ease-out; }
 html.vnbf-off .vnbf-badge { display: none; }
 
 /* Statuslabel linksonder */

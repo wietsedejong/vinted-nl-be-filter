@@ -32,7 +32,9 @@
     enabled: true,
     countries: ["NL", "BE"],
     mode: "hide", // "hide" | "dim"
-    showUnknown: true,
+    showUnknown: false, // onbekend land: verbergen
+    hidePending: true, // pas tonen als het land bekend is
+    hideBusiness: true, // zakelijke verkopers (Vinted Pro) verbergen
     badges: true,
     showPill: true,
     autoFill: true,
@@ -225,6 +227,7 @@
     return {
       c: String(u.country_iso_code || u.country_code || "?").toUpperCase(),
       city: u.expose_location === false ? "" : (u.city || ""),
+      b: !!(u.business || u.business_account), // zakelijke verkoper (Vinted Pro)
       t: Date.now(),
     };
   }
@@ -274,14 +277,16 @@
   // ---------- artikel -> verkoper koppelen ----------
   /**
    * Nieuwe koppelingen artikel → verkoper opslaan.
-   * @param {Array<[number, number, string?]>} pairs  Lijst van [itemId, userId, titel].
+   * @param {Array<[number, number, string?, boolean?]>} pairs
+   *        Lijst van [itemId, userId, titel, zakelijk]. Titel en zakelijk zijn optioneel.
    */
   function addPairs(pairs) {
     const t = Date.now();
     let added = 0;
-    for (const [i, u, title] of pairs) {
+    for (const [i, u, title, biz] of pairs) {
       if (!i || !u) continue;
       if (title && !titles.has(i)) titles.set(i, title);
+      if (typeof biz === "boolean" && business.get(u) !== biz) { business.set(u, biz); added++; }
       const cur = items.get(i);
       if (!cur || cur.u !== u) { items.set(i, { u, t }); added++; }
     }
@@ -315,7 +320,9 @@
         const id = parseInt(parts[i], 10);
         const m = parts[i].match(/"user":\{"id":(\d+)/);
         const tt = parts[i].match(/"title":"([^"]{1,300})"/);
-        if (id && m) pairs.push([id, +m[1], tt ? tt[1] : ""]);
+        // VINTED-AFHANKELIJK: "user":{"id":…,…,"isBusiness":true|false}
+        const bz = parts[i].match(/"user":\{"id":\d+[^}]*?"isBusiness":(true|false)/);
+        if (id && m) pairs.push([id, +m[1], tt ? tt[1] : "", bz ? bz[1] === "true" : undefined]);
       }
       addPairs(pairs);
     }
@@ -328,6 +335,7 @@
   // Dit is een vuistregel, geen zekerheid: het land van de verkoper blijft leidend.
   // Een Franstalige Belg wordt eerst verborgen en verschijnt na controle alsnog.
   const titles = new Map(); // itemId -> titel
+  const business = new Map(); // userId -> true/false (zakelijke verkoper, uit zoekresultaten)
   const langs = new Map(); // itemId -> "nl" | "en" | "fr" | ... | "" (onbekend)
 
   const LANG_WORDS = {
@@ -392,13 +400,13 @@
 
   /**
    * Volgorde van opzoeken (lager = eerder):
-   *  0 Nederlandse titel, in beeld     1 Engelse/onduidelijke titel, in beeld
-   *  2 Nederlandse titel, buiten beeld 3 Engelse/onduidelijke titel, buiten beeld
-   *  4 titel in een andere taal (wordt voorlopig verborgen, dus als laatste)
+   *  0 Nederlandse titel   1 Engelse/onduidelijke titel   2 titel in een andere taal
+   * Binnen dezelfde groep: volgorde op de pagina (van boven naar beneden).
+   * (Of iets 'in beeld' staat kunnen we niet meten: onbekende artikelen zijn verborgen.)
    */
-  function priorityFor(lang, visible) {
-    if (isForeign(lang)) return 4;
-    return (visible ? 0 : 2) + (lang === "nl" ? 0 : 1);
+  function priorityFor(lang) {
+    if (isForeign(lang)) return 2;
+    return lang === "nl" ? 0 : 1;
   }
 
   // ---------- weergave ----------
@@ -425,12 +433,15 @@
    *  - "in":      verkoper uit een gekozen land  → tonen
    *  - "out":     verkoper uit een ander land     → verbergen/dimmen
    *  - "unknown": opzoeken mislukt of land onbekend → tonen of verbergen (instelling)
+   *  - "pro":     zakelijke verkoper (Vinted Pro) → verbergen, zonder opzoeken
    *  - "guess":   nog niet bekend, maar de titel is in een andere taal → voorlopig
    *               verbergen (alleen als langPrefilter aan staat)
    * Geen verkoper bekend na FALLBACK_DELAY? Dan de artikelpagina als uitwijk.
    * @returns {{s: string, c?: string, city?: string, lang?: string}}
    */
   function statusFor(itemId, prio, lang) {
+    const uid = items.get(itemId)?.u;
+    if (settings.hideBusiness && uid && (business.get(uid) || users.get(uid)?.b)) return { s: "pro" };
     const st = lookupStatus(itemId, prio);
     if (st.s === "pending" && settings.langPrefilter && isForeign(lang)) return { s: "guess", lang };
     return st;
@@ -477,17 +488,19 @@
     let text = "…";
     if (st.s === "unknown") text = "?";
     else if (st.s === "guess") text = `${st.lang.toUpperCase()}?`;
+    else if (st.s === "pro") text = "PRO";
     else if (st.c) text = st.city && st.s === "in" ? `${st.c} · ${st.city}` : st.c;
     if (b.textContent !== text) b.textContent = text;
     b.dataset.state = st.s;
     b.title =
       st.s === "pending" ? "Land van verkoper wordt opgehaald…" :
       st.s === "unknown" ? "Land van verkoper onbekend" :
+      st.s === "pro" ? "Zakelijke verkoper (Vinted Pro)" :
       st.s === "guess" ? "Titel lijkt niet Nederlands/Engels; voorlopig verborgen tot het land van de verkoper bekend is" :
       `Verkoper uit ${st.c}${st.city ? " (" + st.city + ")" : ""}`;
   }
 
-  let counts = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0 };
+  let counts = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0, pro: 0 };
 
   /**
    * Hoofdlus. Draait na elke DOM-wijziging, scroll of nieuw gegeven (via renderSoon).
@@ -505,9 +518,9 @@
     root.classList.toggle("vnbf-mode-dim", settings.mode === "dim");
     root.classList.toggle("vnbf-reveal", reveal);
     root.classList.toggle("vnbf-hide-unknown", !settings.showUnknown);
+    root.classList.toggle("vnbf-hide-pending", settings.hidePending);
 
-    const c = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0 };
-    const vh = window.innerHeight || 800;
+    const c = { in: 0, out: 0, pending: 0, unknown: 0, guess: 0, pro: 0 };
     const needed = new Set();
     syncContext();
     const cards = [];
@@ -517,13 +530,8 @@
     }
     for (const card of document.querySelectorAll(".vnbf-card")) cards.push([card, +card.dataset.vnbfItem]);
     for (const [card, id] of cards) {
-      let prio = 4;
       const lang = settings.enabled ? langOf(id, card) : "";
-      if (settings.enabled && !users.has(items.get(id)?.u)) {
-        const r = card.getBoundingClientRect();
-        const visible = r.height > 0 && r.bottom > -300 && r.top < vh + 600; // in of vlak bij beeld
-        prio = priorityFor(lang, visible);
-      }
+      const prio = priorityFor(lang);
       const st = settings.enabled ? statusFor(id, prio, lang) : { s: "in" };
       if (st.s === "pending" || st.s === "guess") {
         const rec = items.get(id);
@@ -794,7 +802,10 @@
       for (const it of list) {
         if (native.has(it.id) || fill.seen.has(it.id)) continue;
         fill.seen.add(it.id);
-        if (it.user && typeof it.user.id === "number") pairs.push([it.id, it.user.id, it.title || ""]);
+        if (it.user && typeof it.user.id === "number") {
+          const biz = typeof it.user.isBusiness === "boolean" ? it.user.isBusiness : undefined;
+          pairs.push([it.id, it.user.id, it.title || "", biz]);
+        }
         grid.appendChild(buildCard(it));
         added++;
       }
@@ -832,7 +843,7 @@
       document.documentElement.classList.toggle("vnbf-has-extra", fill.lastPage > fill.startPage);
     }
     const visible = counts.in + (settings.showUnknown ? counts.unknown : 0);
-    const total = visible + counts.out + counts.pending;
+    const total = visible + counts.out + counts.pending + counts.guess + counts.pro;
     if (!total || fill.loading || fill.ended) return;
     if (!fill.el && counts.out > 0 && ensureBlock()) updateBlock(); // knop 'Meer laden' zodra er iets verborgen is
     if (
@@ -850,7 +861,7 @@
   let pill = null;
   /** Statuslabel linksonder maken/bijwerken: aan/uit, tellingen, 'toon'-knop. */
   function updatePill() {
-    const total = counts.in + counts.out + counts.pending + counts.unknown + counts.guess;
+    const total = counts.in + counts.out + counts.pending + counts.unknown + counts.guess + counts.pro;
     if (!settings.showPill || !document.body || total === 0) {
       if (pill) pill.hidden = true;
       return;
@@ -882,18 +893,19 @@
     if (settings.enabled) {
       const hiddenUnknown = settings.showUnknown ? 0 : counts.unknown;
       parts.push(`${counts.in + (settings.showUnknown ? counts.unknown : 0)} getoond`);
-      const hidden = counts.out + counts.guess + hiddenUnknown;
-      parts.push(`${hidden} ${settings.mode === "dim" ? "gedimd" : "verborgen"}${counts.guess ? ` (${counts.guess} voorlopig, op taal)` : ""}`);
-      if (counts.pending) {
+      const hidden = counts.out + counts.pro + hiddenUnknown;
+      parts.push(`${hidden} ${settings.mode === "dim" ? "gedimd" : "verborgen"}${counts.pro ? ` (${counts.pro} pro)` : ""}`);
+      const todo = counts.pending + counts.guess;
+      if (todo) {
         const mins = Math.ceil(limiter.queue.length / RATE);
-        parts.push(`${counts.pending} laden…${mins > 1 ? ` (~${mins} min)` : ""}`);
+        parts.push(`${todo} nog controleren…${mins > 1 ? ` (~${mins} min)` : ""}`);
       }
     } else {
       parts.push("filter staat uit");
     }
     setText(pill.querySelector(".vnbf-pill__text"), parts.join(" · "));
     const rv = pill.querySelector(".vnbf-pill__reveal");
-    rv.hidden = !settings.enabled || settings.mode === "dim" || counts.out + counts.guess + (settings.showUnknown ? 0 : counts.unknown) === 0;
+    rv.hidden = !settings.enabled || settings.mode === "dim" || counts.out + counts.guess + counts.pro + counts.pending + (settings.showUnknown ? 0 : counts.unknown) === 0;
     setText(rv, reveal ? "verberg" : "toon");
   }
 
