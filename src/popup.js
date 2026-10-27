@@ -72,17 +72,17 @@ async function init() {
   });
 
   await showCacheInfo();
-  $("#clear").addEventListener("click", async () => {
-    await api.storage.local.remove(["vnbfUsers", "vnbfItems"]);
-    await showCacheInfo();
+  $("#manage").addEventListener("click", () => {
+    api.runtime.openOptionsPage();
+    window.close();
   });
 }
 
-/** Toont hoeveel verkopers er in de cache staan. */
+/** Toont hoeveel verkopers er in de cache staan (zie cache-codec.js). */
 async function showCacheInfo() {
-  const { vnbfUsers = {} } = await api.storage.local.get("vnbfUsers");
-  const n = Object.keys(vnbfUsers).length;
-  $("#cacheInfo").textContent = `${n} verkoper${n === 1 ? "" : "s"} in cache`;
+  const { users } = await VNBF_CACHE.loadAll(api.storage.local);
+  const n = users.size;
+  $("#cacheInfo").textContent = `${new Intl.NumberFormat("nl-NL").format(n)} verkoper${n === 1 ? "" : "s"} bekend`;
 }
 
 init();

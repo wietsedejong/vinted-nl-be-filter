@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vinted NL/BE-filter · verkoperscache</title>
+  <link rel="stylesheet" href="beheer.css">
+</head>
+<body>
+  <main>
+    <h1>Verkoperscache</h1>
+    <p class="lead">
+      De extensie onthoudt van elke verkoper die ze heeft gecontroleerd uit welk land hij komt.
+      Een bekende verkoper hoeft niet opnieuw bij Vinted te worden opgezocht en verschijnt
+      dus meteen. Hoe langer je de extensie gebruikt, hoe sneller zoeken wordt.
+    </p>
+
+    <section class="stats" aria-live="polite">
+      <div class="stat stat--big"><span id="total">…</span><small>verkopers bekend</small></div>
+      <div class="stat"><span id="nl">…</span><small>Nederland</small></div>
+      <div class="stat"><span id="be">…</span><small>België</small></div>
+      <div class="stat"><span id="other">…</span><small>andere landen</small></div>
+      <div class="stat"><span id="pro">…</span><small>zakelijk (Pro)</small></div>
+    </section>
+    <p class="meta" id="meta"></p>
+
+    <section class="card">
+      <h2>Meenemen naar een andere computer</h2>
+      <p>Exporteer de cache naar een bestand en importeer dat bestand in de extensie op je andere computer (of browser). Bij importeren wordt samengevoegd: per verkoper blijft de meest recente controle bewaard.</p>
+      <div class="row">
+        <button type="button" id="export">Exporteren…</button>
+        <label class="button button--secondary">
+          Importeren…
+          <input type="file" id="import" accept=".json,application/json" hidden>
+        </label>
+      </div>
+      <p class="status" id="status" role="status"></p>
+    </section>
+
+    <section class="card">
+      <h2>Onderhoud</h2>
+      <p>Verkopers worden na 12 maanden opnieuw gecontroleerd en de cache houdt maximaal 200.000 verkopers bij (de oudste vallen eraf). Je kunt ook alles wissen; de extensie bouwt de cache dan opnieuw op.</p>
+      <div class="row">
+        <button type="button" id="clear" class="button--danger">Cache wissen</button>
+      </div>
+    </section>
+  </main>
+  <script src="cache-codec.js"></script>
+  <script src="beheer.js"></script>
+</body>
+</html>

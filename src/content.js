@@ -44,9 +44,10 @@
   const PAGE_SIZE = 48; // eigen lijst: zoveel NL/BE-artikelen per 'pagina' (daarna: Meer laden / scrollen)
   const MAX_PAGES_PER_STEP = 6; // per stap hooguit zoveel Vinted-pagina's ophalen (zeldzame zoekopdrachten)
   const BACKLOG_LIMIT = 12; // pas een nieuwe Vinted-pagina halen als er minder NL/EN-titels op controle wachten
-  const USER_TTL = 60 * 864e5; // 60 dagen
-  const ITEM_TTL = 30 * 864e5; // 30 dagen
-  const MAX_ENTRIES = 30000; // max. items per cache (≈1 MB in browser.storage.local)
+  const USER_TTL = 365 * 864e5; // verkoper na een jaar opnieuw controleren (verhuizen naar ander land is zeldzaam)
+  const MAX_USERS = 200000; // max. verkopers in de cache (≈6 MB, zie cache-codec.js)
+  const ITEM_TTL = 30 * 864e5; // koppeling artikel → verkoper: 30 dagen
+  const MAX_ITEMS = 5000; // max. koppelingen artikel → verkoper (die komen meestal toch uit de pagina)
   const FALLBACK_DELAY = 2500; // ms wachten op API-gegevens voor we de artikelpagina ophalen
 
   let settings = { ...DEFAULTS };
@@ -75,40 +76,59 @@
     } catch (_) {}
   }
 
-  /** Opgeslagen verkopers en koppelingen laden; verlopen items (TTL) worden overgeslagen. */
+  /**
+   * Verkoperscache en koppelingen laden. Verkopers staan verdeeld over meerdere
+   * sleutels (zie cache-codec.js); het oude formaat (tot v0.6) wordt omgezet.
+   * Verlopen verkopers (USER_TTL) worden overgeslagen.
+   */
   async function loadCache() {
     if (!hasStorage) return;
     try {
-      const { vnbfUsers = {}, vnbfItems = {} } = await api.storage.local.get(["vnbfUsers", "vnbfItems"]);
       const now = Date.now();
-      // Records zonder 'b' (zakelijk) komen uit een oudere versie: opnieuw opzoeken.
-      for (const [k, v] of Object.entries(vnbfUsers)) if (now - v.t < USER_TTL && "b" in v) users.set(+k, v);
+      const { users: loaded, legacy } = await VNBF_CACHE.loadAll(api.storage.local);
+      for (const [id, u] of loaded) if (now - u.t < USER_TTL) users.set(id, u);
+      if (legacy) await VNBF_CACHE.saveAll(api.storage.local, users); // eenmalig omzetten
+      const { vnbfItems = {} } = await api.storage.local.get("vnbfItems");
       for (const [k, v] of Object.entries(vnbfItems)) if (now - v.t < ITEM_TTL && !items.has(+k)) items.set(+k, v);
     } catch (_) {}
   }
 
-  /** Houdt een cache onder MAX_ENTRIES door de oudste items (op tijdstempel t) te verwijderen. */
-  function prune(map) {
-    if (map.size <= MAX_ENTRIES) return;
+  /** Houdt een Map onder `max` door de oudste regels (op tijdstempel t) te verwijderen. */
+  function prune(map, max) {
+    if (map.size <= max) return [];
     const sorted = [...map.entries()].sort((a, b) => a[1].t - b[1].t);
-    for (let i = 0; i < sorted.length - MAX_ENTRIES; i++) map.delete(sorted[i][0]);
+    const removed = [];
+    for (let i = 0; i < sorted.length - max; i++) { map.delete(sorted[i][0]); removed.push(sorted[i][0]); }
+    return removed;
+  }
+
+  const dirtyShards = new Set(); // delen van de verkoperscache die opnieuw weggeschreven moeten worden
+
+  /** Verkoper opslaan in het geheugen en zijn deel van de cache als 'gewijzigd' markeren. */
+  function rememberUser(uid, u) {
+    users.set(uid, u);
+    dirtyShards.add(uid % VNBF_CACHE.SHARDS);
+    saveCacheSoon();
+  }
+
+  /** Gewijzigde delen van de cache nu wegschrijven. */
+  async function flushCache() {
+    if (!hasStorage) return;
+    for (const id of prune(users, MAX_USERS)) dirtyShards.add(id % VNBF_CACHE.SHARDS);
+    prune(items, MAX_ITEMS);
+    const shards = [...dirtyShards];
+    dirtyShards.clear();
+    try {
+      if (shards.length) await VNBF_CACHE.saveShards(api.storage.local, users, shards);
+      await api.storage.local.set({ vnbfItems: Object.fromEntries(items) });
+    } catch (_) {}
   }
 
   let saveTimer = null;
   /** Cache wegschrijven, maximaal één keer per 2 s (debounce), zodat we de opslag niet spammen. */
   function saveCacheSoon() {
     if (!hasStorage || saveTimer) return;
-    saveTimer = setTimeout(async () => {
-      saveTimer = null;
-      prune(users);
-      prune(items);
-      try {
-        await api.storage.local.set({
-          vnbfUsers: Object.fromEntries(users),
-          vnbfItems: Object.fromEntries(items),
-        });
-      } catch (_) {}
-    }, 2000);
+    saveTimer = setTimeout(() => { saveTimer = null; flushCache(); }, 2000);
   }
 
   // ---------- gedoseerde verzoeken ----------
@@ -261,7 +281,7 @@
     if (failedUsers.has(uid) || users.has(uid)) return;
     pendingUsers.add(uid);
     withRetry("u" + uid, () => fetchUser(uid), prio)
-      .then((u) => { users.set(uid, u); saveCacheSoon(); })
+      .then((u) => rememberUser(uid, u))
       .catch((e) => { if (!(e instanceof CancelError)) failedUsers.add(uid); })
       .finally(() => { pendingUsers.delete(uid); renderSoon(); });
   }
@@ -1022,10 +1042,26 @@
         for (const [k, v] of Object.entries(changes)) if (k in DEFAULTS) settings[k] = v.newValue ?? DEFAULTS[k];
         renderSoon();
       }
-      if (area === "local" && changes.vnbfUsers && !changes.vnbfUsers.newValue) {
-        // cache gewist via het pop-upmenu
-        users.clear(); items.clear(); failedUsers.clear(); failedItems.clear();
-        renderSoon();
+      if (area === "local") {
+        // Cache gewijzigd vanuit de beheerpagina (wissen of importeren) of een ander tabblad.
+        let changed = false;
+        for (const [k, v] of Object.entries(changes)) {
+          if (!VNBF_CACHE.isShardKey(k)) continue;
+          changed = true;
+          if (!v.newValue) {
+            // deel gewist: verkopers uit dat deel vergeten
+            const s = +k.slice(VNBF_CACHE.PREFIX.length);
+            for (const id of [...users.keys()]) if (id % VNBF_CACHE.SHARDS === s) users.delete(id);
+          } else {
+            for (const [id, a] of Object.entries(v.newValue)) {
+              const u = VNBF_CACHE.decode(a);
+              const cur = users.get(+id);
+              if (!cur || u.t > cur.t) users.set(+id, u);
+            }
+          }
+        }
+        if (changes.vnbfItems && !changes.vnbfItems.newValue) items.clear();
+        if (changed) { failedUsers.clear(); renderSoon(); }
       }
     });
   }
@@ -1063,9 +1099,7 @@
     window.addEventListener("pagehide", () => {
       saveSnapshot();
       saveScroll();
-      if (hasStorage) {
-        try { api.storage.local.set({ vnbfUsers: Object.fromEntries(users), vnbfItems: Object.fromEntries(items) }); } catch (_) {}
-      }
+      flushCache();
     });
     // Ook periodiek tijdens scrollen de positie bijwerken (pagehide wordt niet altijd gehaald)
     let scrollSave = null;

@@ -34,7 +34,7 @@ Herken je jezelf niet in het lijstje hierboven? Dan is dit waarschijnlijk niets 
 - **Artikelen openen in een nieuw tabblad**, zodat de lijst gewoon doorzoekt. Uit te zetten in het menu.
 - **Landlabel op elke foto**, bijvoorbeeld `NL · Utrecht`. Zo zie je ook meteen of ophalen kan.
 - **Statuslabel linksonder.** Toont hoeveel artikelen getoond, verborgen en nog aan het laden zijn. Je zet het filter er aan en uit, en met **toon** zie je even wat er verborgen is.
-- **Cache.** Een verkoper die al eens is opgezocht, is de volgende keer direct bekend.
+- **Verkoperscache (eigen database).** Elke gecontroleerde verkoper wordt onthouden: land, woonplaats en of hij zakelijk is. Een bekende verkoper verschijnt de volgende keer direct, zonder wachttijd. De cache groeit vanzelf mee met je zoekgedrag en houdt tot 200.000 verkopers een jaar lang bij. Zie [Verkoperscache](#verkoperscache).
 
 ## Installeren
 
@@ -59,12 +59,32 @@ Open daarna het `.xpi`-bestand uit `web-ext-artifacts/` in Firefox.
 
 Ga naar `chrome://extensions`, zet **Ontwikkelaarsmodus** aan, klik op **Uitgepakte extensie laden** en kies deze map.
 
+## Verkoperscache
+
+De traagheid zit volledig in het opzoeken van nieuwe verkopers (zie [Beperkingen](#beperkingen)). Daarom bouwt de extensie een lokale database op van elke verkoper die ze tegenkomt.
+
+- **Wat erin staat:** per verkoper het land, de woonplaats (als die openbaar is), of het een zakelijke verkoper is, en wanneer hij gecontroleerd is. Verder niets: geen namen, artikelen of berichten.
+- **Ook buitenlandse verkopers.** Die zijn net zo nuttig: elke bekende verkoper hoeft niet opnieuw opgezocht te worden, of hij nu in Utrecht of Lyon woont.
+- **Omvang:** ±30 bytes per verkoper. 10.000 verkopers ≈ 0,3 MB, 200.000 ≈ 6 MB. Maximaal 200.000; daarboven vallen de oudste eraf.
+- **Houdbaarheid:** een verkoper wordt na 12 maanden opnieuw gecontroleerd.
+- **Waar:** alleen lokaal in je browser (`browser.storage.local`). Er gaat niets naar een server.
+
+**Beheren.** Klik in het menu op **Cache beheren…** (of open de instellingen van de extensie). Daar zie je hoeveel verkopers bekend zijn (NL, BE, overig, Pro) en kun je:
+
+- **Exporteren** naar een `.json`-bestand;
+- **Importeren** op een andere computer of in een andere browser. Er wordt samengevoegd: per verkoper blijft de meest recente controle bewaard;
+- **Wissen.**
+
+Zo neem je een opgebouwde cache mee van bijvoorbeeld je Mac naar je Linux-machine, en weer terug.
+
+**Waarom geen complete lijst van alle Nederlandse gebruikers?** Opslag zou het probleem niet zijn (een paar miljoen ID's past prima), maar vullen wel. Met ±30 opvragingen per minuut kost één miljoen verkopers ruim drie weken non-stop. Dat is precies het systematische scrapen waar Vinted op let. Er bestaat ook geen lijst van "alle NL-gebruikers" om af te lopen, en hij zou nooit compleet zijn. Een gedeelde database (meerdere gebruikers vullen samen) zou bovendien een verzameling persoonsgegevens worden die iemand moet beheren. De cache vult zich daarom alleen met verkopers die je zelf tegenkomt.
+
 ## Hoe het werkt
 
 Bij zoekresultaten van Vinted zit wel het ID van de verkoper, maar niet zijn land. De extensie zoekt dat zo op:
 
 1. **Verkoper per artikel.** Uit de zoekresultaten die al in de pagina zitten (Next.js-serverrender). Bij doorbladeren leest `page-hook.js` mee met de API-antwoorden die Vinted zelf ophaalt. Dit kost geen extra verzoeken.
-2. **Land per verkoper.** Via `GET /api/v2/users/<id>`, hetzelfde profiel dat je ziet als je op een verkoper klikt. Het antwoord gaat 60 dagen de cache in.
+2. **Land per verkoper.** Via `GET /api/v2/users/<id>`, hetzelfde profiel dat je ziet als je op een verkoper klikt. Het antwoord gaat 12 maanden de [verkoperscache](#verkoperscache) in.
 3. **Uitwijk.** Vindt de extensie bij een artikel geen verkoper, dan haalt ze de artikelpagina op en zoekt het ID daar.
 4. **Aanvullen.** De extensie haalt de HTML op van `?page=N+1`, Vinted's eigen pagina-URL, zodat alle filters meegaan. Daaruit leest ze de artikelen en toont ze die als eigen kaarten.
 
@@ -72,7 +92,7 @@ Alles loopt via je eigen browsersessie op vinted.nl. Er gaan geen gegevens naar 
 
 ## Beperkingen
 
-- **Traag bij nieuwe verkopers.** Vinted staat ongeveer **30 profielopvragingen per minuut** toe. Daarboven volgt een `429` met `Retry-After: 60`. De extensie houdt het bij 24 per minuut, zodat je zelf normaal kunt blijven browsen. Een volle pagina met alleen onbekende verkopers duurt daardoor 3 à 4 minuten. Wat in beeld is, komt eerst aan de beurt. Door de cache gaat het steeds sneller.
+- **Traag bij nieuwe verkopers.** Vinted staat ongeveer **30 profielopvragingen per minuut** toe. Daarboven volgt een `429` met `Retry-After: 60`. De extensie houdt het bij 24 per minuut, zodat je zelf normaal kunt blijven browsen. Een volle pagina met alleen onbekende verkopers duurt daardoor 3 à 4 minuten. Door de [verkoperscache](#verkoperscache) gaat het steeds sneller: bekende verkopers kosten geen wachttijd.
 - **De eigen lijst zoekt met beleid.** Ze haalt pas een volgende Vinted-pagina op als de vorige grotendeels gecontroleerd is, en per stap hooguit 6 pagina's. Bij een zeldzame zoekopdracht klik je daarna zelf op **Meer laden**.
 - **Eenvoudigere kaarten.** De lijst bestaat uit eigen, kale kaarten. Favorieten en snelle acties werken daar niet; klik door naar het artikel. Wil je Vinted's eigen weergave terug, zet dan **Eigen resultatenlijst** uit in het menu.
 - **Alleen in de browser.** In de Vinted-app werkt dit niet. Op Android kan het wel met Firefox.
@@ -94,6 +114,7 @@ Daar begin je. Per symptoom:
 | Alles wordt `?` | `/api/v2/users/<id>` is veranderd of geblokkeerd | `fetchUser()` |
 | Constant `429` in de console | Vinted heeft de limiet verlaagd | `RATE` in `content.js` |
 | Eigen lijst blijft leeg / **Meer laden** geeft niets | De Next.js-stroom is anders opgebouwd | `decodeFlight()` / `parseProductItems()` |
+| Cache blijft leeg of import mislukt | Opslagformaat of rechten | `src/cache-codec.js`, `unlimitedStorage` in `manifest.json` |
 
 ## Bestanden
 
@@ -101,9 +122,11 @@ Daar begin je. Per symptoom:
 |---|---|
 | `manifest.json` | Manifest V3, Firefox en Chrome |
 | `src/page-hook.js` | Draait in de pagina en leest mee met Vinted's API-antwoorden |
-| `src/content.js` | Opzoeken, filteren, labels, aanvullen, statuslabel |
+| `src/content.js` | Opzoeken, filteren, labels, eigen resultatenlijst, statuslabel |
 | `src/content.css` | Stijlen |
+| `src/cache-codec.js` | Opslagformaat van de verkoperscache (gedeeld door extensie en beheerpagina) |
 | `src/popup.*` | Instellingenmenu |
+| `src/beheer.*` | Beheerpagina van de verkoperscache: overzicht, exporteren, importeren, wissen |
 
 ## Gebruiksvoorwaarden
 
