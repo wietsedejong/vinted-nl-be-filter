@@ -1,6 +1,6 @@
 // Vinted NL/BE-filter — content script
 // Bepaalt per artikel op de pagina het land van de verkoper en verbergt
-// (of dimt) artikelen van buiten de gekozen landen.
+// artikelen van buiten de gekozen landen (of toont ze met een landlabel).
 //
 // Gegevensbronnen, in volgorde van voorkeur:
 //  1. De zoekresultaten die Vinted al in de pagina meestuurt (server-render),
@@ -31,7 +31,7 @@
   const DEFAULTS = {
     enabled: true,
     countries: ["NL", "BE"],
-    mode: "hide", // "hide" | "dim"
+    mode: "hide", // "hide" = andere landen verbergen | "show" = tonen met landlabel
     showUnknown: false, // onbekend land: verbergen
     hidePending: true, // pas tonen als het land bekend is
     hideBusiness: true, // zakelijke verkopers (Vinted Pro) verbergen
@@ -51,7 +51,7 @@
   const FALLBACK_DELAY = 2500; // ms wachten op API-gegevens voor we de artikelpagina ophalen
 
   let settings = { ...DEFAULTS };
-  let reveal = false; // tijdelijk verborgen artikelen gedimd tonen (knop 'toon' in statuslabel)
+  let reveal = false; // verborgen artikelen tijdelijk tonen (knop 'toon' in statuslabel)
 
   // ---------- toestand ----------
   // Alles wat we weten zit in twee Maps; de rest zijn hulpsets om dubbel werk te voorkomen.
@@ -449,7 +449,7 @@
    * Bepaalt de toestand van één artikel en vraagt zo nodig gegevens aan.
    *  - "pending": verkoper of land nog niet bekend (wordt opgehaald)
    *  - "in":      verkoper uit een gekozen land  → tonen
-   *  - "out":     verkoper uit een ander land     → verbergen/dimmen
+   *  - "out":     verkoper uit een ander land     → verbergen (of tonen, bij mode "show")
    *  - "unknown": opzoeken mislukt of land onbekend → tonen of verbergen (instelling)
    *  - "pro":     zakelijke verkoper (Vinted Pro) → verbergen, zonder opzoeken
    *  - "guess":   nog niet bekend, maar de titel is in een andere taal → voorlopig
@@ -533,7 +533,8 @@
     parseInlineScripts();
     const root = document.documentElement;
     root.classList.toggle("vnbf-off", !settings.enabled);
-    root.classList.toggle("vnbf-mode-dim", settings.mode === "dim");
+    // "dim" bestond tot v0.7; telt nu als "show" (tonen met landlabel)
+    root.classList.toggle("vnbf-mode-show", settings.mode !== "hide");
     root.classList.toggle("vnbf-reveal", reveal);
     root.classList.toggle("vnbf-hide-unknown", !settings.showUnknown);
     root.classList.toggle("vnbf-hide-pending", settings.hidePending);
@@ -1019,7 +1020,7 @@
       const hiddenUnknown = settings.showUnknown ? 0 : counts.unknown;
       parts.push(`${counts.in + (settings.showUnknown ? counts.unknown : 0)} getoond`);
       const hidden = counts.out + counts.pro + hiddenUnknown;
-      parts.push(`${hidden} ${settings.mode === "dim" ? "gedimd" : "verborgen"}${counts.pro ? ` (${counts.pro} pro)` : ""}`);
+      parts.push(`${hidden} ${settings.mode === "hide" ? "verborgen" : "uit andere landen"}${counts.pro ? ` (${counts.pro} pro)` : ""}`);
       const todo = counts.pending + counts.guess;
       if (todo) {
         const mins = Math.ceil(limiter.queue.length / RATE);
@@ -1030,7 +1031,7 @@
     }
     setText(pill.querySelector(".vnbf-pill__text"), parts.join(" · "));
     const rv = pill.querySelector(".vnbf-pill__reveal");
-    rv.hidden = !settings.enabled || settings.mode === "dim" || counts.out + counts.guess + counts.pro + counts.pending + (settings.showUnknown ? 0 : counts.unknown) === 0;
+    rv.hidden = !settings.enabled || settings.mode !== "hide" || counts.out + counts.guess + counts.pro + counts.pending + (settings.showUnknown ? 0 : counts.unknown) === 0;
     setText(rv, reveal ? "verberg" : "toon");
   }
 

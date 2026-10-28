@@ -43,7 +43,8 @@ async function init() {
   $("#hidePending").checked = s.hidePending;
   $("#hideBusiness").checked = s.hideBusiness;
   $("#newTab").checked = s.newTab;
-  for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === s.mode;
+  const mode = s.mode === "hide" ? "hide" : "show"; // "dim" (tot v0.7) → "show"
+  for (const r of document.querySelectorAll('input[name="mode"]')) r.checked = r.value === mode;
 
   const box = $("#countries");
   for (const [code, name] of COUNTRIES) {

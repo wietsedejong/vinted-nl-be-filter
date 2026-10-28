@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Vinted NL/BE-filter",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Toont op Vinted alleen artikelen van verkopers uit Nederland en België (instelbaar).",
   "icons": {
     "16": "icons/icon-16.png",

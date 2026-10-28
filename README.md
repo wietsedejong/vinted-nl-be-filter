@@ -25,7 +25,7 @@ Herken je jezelf niet in het lijstje hierboven? Dan is dit waarschijnlijk niets 
 ## Wat het doet
 
 - **Filtert op land van de verkoper.** Standaard NL en BE. Andere landen vink je aan in het menu.
-- **Verbergt of dimt** artikelen van buiten die landen.
+- **Verbergen of tonen.** Artikelen van buiten die landen verbergen, of gewoon tonen met een landlabel. Er wordt nooit iets grijs gemaakt.
 - **Eigen resultatenlijst.** Vinted toont 96 artikelen per pagina, van alle landen door elkaar; na filteren blijven er soms maar een paar over. Daarom vervangt de extensie Vinted's raster door een eigen lijst die zichzelf vult: ze doorzoekt Vinted-pagina 1, 2, 3 … van dezelfde zoekopdracht (met alle filters) tot er 48 NL/BE-artikelen staan. Scroll je naar beneden of klik je **Meer laden**, dan zoekt ze verder.
 - **Snel voorfilteren op taal.** Opzoeken gaat in deze volgorde: eerst artikelen met een Nederlandse titel, dan Engelse of onduidelijke titels, en als laatste titels in een andere taal. Artikelen met een duidelijk Franse, Duitse, Spaanse enz. titel worden meteen voorlopig verborgen (label `FR?`), tot het land van de verkoper bekend is. Is de verkoper toch Belg of Nederlander, dan verschijnt het artikel alsnog. Dit staat aan; uitzetten kan in het menu.
 - **Verschijnt pas als het zeker is.** Artikelen waarvan het land nog niet bekend is, blijven verborgen en verschijnen zodra de verkoper is gecontroleerd. Artikelen met een onbekend land blijven weg. Beide is uit te zetten in het menu.
