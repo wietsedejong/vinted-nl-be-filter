@@ -36,10 +36,6 @@ html:not(.vnbf-off) .vnbf-cell[data-vnbf="out"]:hover {
   filter: none;
 }
 
-/* Nog bezig met ophalen */
-html:not(.vnbf-off) .vnbf-cell[data-vnbf="pending"] {
-  opacity: 0.6;
-}
 
 /* Landlabel op de foto */
 .vnbf-badge {
