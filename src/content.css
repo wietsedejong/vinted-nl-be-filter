@@ -2,7 +2,7 @@
  *
  * content.js zet:
  *  - op <html>: vnbf-off (filter uit), vnbf-mode-show (andere landen tonen), vnbf-reveal (tijdelijk tonen),
- *               vnbf-hide-unknown, vnbf-hide-pending, vnbf-own (eigen resultatenlijst);
+ *               vnbf-hide-unknown, vnbf-hide-pending, vnbf-hide-business, vnbf-own (eigen resultatenlijst);
  *  - op elk rastervak: class vnbf-cell + data-vnbf="in|out|pending|unknown|guess"
  *    (guess = voorlopig verborgen op basis van de taal van de titel; pro = zakelijke verkoper).
  *  - vnbf-hide-pending op <html>: nog onbekende artikelen ook verbergen ("verschijnt als het bekend is").
@@ -13,9 +13,14 @@
  * (vnbf-reveal) wordt niets verborgen: alles gewoon zichtbaar, met landlabel. Niets wordt grijs. */
 html:not(.vnbf-off):not(.vnbf-mode-show):not(.vnbf-reveal) .vnbf-cell[data-vnbf="out"],
 html:not(.vnbf-off):not(.vnbf-mode-show):not(.vnbf-reveal) .vnbf-cell[data-vnbf="guess"],
-html:not(.vnbf-off):not(.vnbf-mode-show):not(.vnbf-reveal) .vnbf-cell[data-vnbf="pro"],
 html.vnbf-hide-pending:not(.vnbf-off):not(.vnbf-mode-show):not(.vnbf-reveal) .vnbf-cell[data-vnbf="pending"],
 html.vnbf-hide-unknown:not(.vnbf-off):not(.vnbf-mode-show):not(.vnbf-reveal) .vnbf-cell[data-vnbf="unknown"] {
+  display: none !important;
+}
+
+/* Zakelijke verkopers (Pro): eigen schakelaar, los van 'verbergen/tonen' van andere landen.
+ * Alleen 'toon' in het statuslabel laat ze tijdelijk zien. */
+html.vnbf-hide-business:not(.vnbf-off):not(.vnbf-reveal) .vnbf-cell[data-vnbf="pro"] {
   display: none !important;
 }
 

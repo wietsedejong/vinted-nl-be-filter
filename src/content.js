@@ -538,6 +538,7 @@
     root.classList.toggle("vnbf-reveal", reveal);
     root.classList.toggle("vnbf-hide-unknown", !settings.showUnknown);
     root.classList.toggle("vnbf-hide-pending", settings.hidePending);
+    root.classList.toggle("vnbf-hide-business", settings.hideBusiness);
     const own = ownActive();
     root.classList.toggle("vnbf-own", own);
     const grid = nativeGrid();
